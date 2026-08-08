@@ -72,6 +72,7 @@ export default class ClarityGraphPlugin extends Plugin {
   private graph: GraphData = { nodes: [], links: [] };
   private settings: Settings = loadSettings();
   private view = { x: 0, y: 0, scale: 1 };
+  private openTopBarElement?: HTMLElement;
 
   async onload() {
     const plugin = this;
@@ -88,17 +89,19 @@ export default class ClarityGraphPlugin extends Plugin {
       }
     });
 
-    this.addTopBar({
-      icon: "iconGraph",
-      title: "Clarity Graph",
-      position: "right",
-      callback: () => this.openGraph()
-    });
-
     this.addCommand({
       langKey: "open-clarity-graph",
       langText: "Open Clarity Graph",
       hotkey: "⌥⇧G",
+      callback: () => this.openGraph()
+    });
+  }
+
+  onLayoutReady() {
+    this.openTopBarElement = this.addTopBar({
+      icon: "iconGraph",
+      title: "Clarity Graph",
+      position: "right",
       callback: () => this.openGraph()
     });
   }

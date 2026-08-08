@@ -8,12 +8,13 @@ export default defineConfig({
     lib: {
       entry: resolve(__dirname, "src/index.ts"),
       name: "ClarityGraph",
-      formats: ["iife"],
+      formats: ["cjs"],
       fileName: () => "index.js"
     },
     rollupOptions: {
       external: ["siyuan"],
       output: {
+        exports: "default",
         globals: {
           siyuan: "siyuan"
         },
