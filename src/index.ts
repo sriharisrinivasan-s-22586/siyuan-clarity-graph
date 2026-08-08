@@ -496,7 +496,7 @@ export default class ClarityGraphPlugin extends Plugin {
     empty.textContent = "No notes match this graph filter.";
 
     const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-    defs.innerHTML = `<marker id="cg-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker>`;
+    defs.innerHTML = `<marker id="cg-arrow" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="6" markerHeight="6" orient="auto" markerUnits="strokeWidth"><path d="M 1 1 L 11 6 L 1 11 z"></path></marker>`;
     svg.appendChild(defs);
 
     const viewport = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -507,12 +507,13 @@ export default class ClarityGraphPlugin extends Plugin {
       const source = byId.get(link.source);
       const target = byId.get(link.target);
       if (!source || !target) continue;
+      const points = linkBoundaryPoints(source, target, this.nodeRadius(source), this.nodeRadius(target), this.settings.arrows ? 9 : 2);
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
       line.setAttribute("class", "cg-link");
-      line.setAttribute("x1", String(source.x));
-      line.setAttribute("y1", String(source.y));
-      line.setAttribute("x2", String(target.x));
-      line.setAttribute("y2", String(target.y));
+      line.setAttribute("x1", String(points.x1));
+      line.setAttribute("y1", String(points.y1));
+      line.setAttribute("x2", String(points.x2));
+      line.setAttribute("y2", String(points.y2));
       line.setAttribute("stroke-width", String(this.settings.linkThickness * Math.min(Math.sqrt(link.count), 3)));
       line.setAttribute("stroke-opacity", String(this.settings.lineOpacity));
       if (this.settings.arrows) line.setAttribute("marker-end", "url(#cg-arrow)");
@@ -520,7 +521,7 @@ export default class ClarityGraphPlugin extends Plugin {
     }
 
     for (const node of nodes) {
-      const radius = (5.2 + Math.sqrt(node.degree + 1) * 2.1) * this.settings.nodeSize;
+      const radius = this.nodeRadius(node);
       const targetRadius = Math.max(radius + 10, 22);
       const nodeGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
       nodeGroup.setAttribute("class", "cg-node-group");
@@ -595,6 +596,10 @@ export default class ClarityGraphPlugin extends Plugin {
     this.draw();
   }
 
+  private nodeRadius(node: GraphNode) {
+    return (5.2 + Math.sqrt(node.degree + 1) * 2.1) * this.settings.nodeSize;
+  }
+
   private attachPanZoom(svg: SVGSVGElement) {
     if (svg.dataset.bound === "true") return;
     svg.dataset.bound = "true";
@@ -662,6 +667,23 @@ export default class ClarityGraphPlugin extends Plugin {
 
 function rangeControl(key: keyof Settings, label: string, min: number, max: number, step: number) {
   return `<label><span>${label} <small class="cg-range-value" data-for="${key}"></small></span><input class="cg-setting" data-setting="${key}" type="range" min="${min}" max="${max}" step="${step}" /></label>`;
+}
+
+function linkBoundaryPoints(source: GraphNode, target: GraphNode, sourceRadius: number, targetRadius: number, arrowPadding: number) {
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const distance = Math.max(Math.hypot(dx, dy), 1);
+  const unitX = dx / distance;
+  const unitY = dy / distance;
+  const start = Math.min(sourceRadius + 3, distance * 0.42);
+  const end = Math.min(targetRadius + arrowPadding, distance * 0.42);
+
+  return {
+    x1: source.x + unitX * start,
+    y1: source.y + unitY * start,
+    x2: target.x - unitX * end,
+    y2: target.y - unitY * end
+  };
 }
 
 function assignComponents(nodes: GraphNode[], links: GraphLink[]) {
