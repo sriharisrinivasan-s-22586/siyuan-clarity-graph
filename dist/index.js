@@ -47,6 +47,12 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
         position: "right",
         callback: () => this.openGraph()
       });
+      this.addCommand({
+        langKey: "open-clarity-graph",
+        langText: "Open Clarity Graph",
+        hotkey: "⌥⇧G",
+        callback: () => this.openGraph()
+      });
     }
     openGraph() {
       siyuan2.openTab({
@@ -55,7 +61,7 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
           icon: "iconGraph",
           title: "Clarity Graph",
           data: {},
-          id: `${this.name}-${TAB_TYPE}`
+          id: `${this.name}${TAB_TYPE}`
         }
       });
     }

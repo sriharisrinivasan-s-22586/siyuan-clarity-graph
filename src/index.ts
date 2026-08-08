@@ -94,6 +94,13 @@ export default class ClarityGraphPlugin extends Plugin {
       position: "right",
       callback: () => this.openGraph()
     });
+
+    this.addCommand({
+      langKey: "open-clarity-graph",
+      langText: "Open Clarity Graph",
+      hotkey: "⌥⇧G",
+      callback: () => this.openGraph()
+    });
   }
 
   private openGraph() {
@@ -103,7 +110,7 @@ export default class ClarityGraphPlugin extends Plugin {
         icon: "iconGraph",
         title: "Clarity Graph",
         data: {},
-        id: `${this.name}-${TAB_TYPE}`
+        id: `${this.name}${TAB_TYPE}`
       }
     });
   }
