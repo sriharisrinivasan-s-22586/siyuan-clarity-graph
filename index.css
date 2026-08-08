@@ -254,10 +254,20 @@
   fill: #7f8ca3;
 }
 
+.cg-node-group {
+  cursor: pointer;
+}
+
+.cg-node-target {
+  fill: transparent;
+  stroke: transparent;
+  pointer-events: all;
+}
+
 .cg-node {
   stroke: rgba(255, 255, 255, 0.86);
   stroke-width: 1.6;
-  cursor: pointer;
+  pointer-events: none;
   filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.38));
 }
 
@@ -266,7 +276,7 @@
   stroke-dasharray: 2 2;
 }
 
-.cg-node:hover {
+.cg-node-group:hover .cg-node {
   stroke: #fff;
   stroke-width: 2.6;
 }

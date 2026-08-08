@@ -427,21 +427,31 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       viewport.appendChild(line);
     }
     for (const node of nodes) {
-      const radius = (3.8 + Math.sqrt(node.degree + 1) * 1.9) * this.settings.nodeSize;
+      const radius = (5.2 + Math.sqrt(node.degree + 1) * 2.1) * this.settings.nodeSize;
+      const targetRadius = Math.max(radius + 10, 22);
+      const nodeGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      nodeGroup.setAttribute("class", "cg-node-group");
+      nodeGroup.addEventListener("mouseenter", (event) => this.showTooltip(event, node));
+      nodeGroup.addEventListener("mousemove", (event) => this.positionTooltip(event));
+      nodeGroup.addEventListener("mouseleave", () => this.hideTooltip());
+      nodeGroup.addEventListener("click", () => {
+        this.hideTooltip();
+        void siyuan.openTab({ app: this.app, doc: { id: node.id } });
+      });
+      const target = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      target.setAttribute("class", "cg-node-target");
+      target.setAttribute("cx", String(node.x));
+      target.setAttribute("cy", String(node.y));
+      target.setAttribute("r", String(targetRadius));
+      nodeGroup.appendChild(target);
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       circle.setAttribute("class", `cg-node${node.degree === 0 ? " is-orphan" : ""}`);
       circle.setAttribute("cx", String(node.x));
       circle.setAttribute("cy", String(node.y));
       circle.setAttribute("r", String(radius));
       circle.setAttribute("fill", node.color);
-      circle.addEventListener("mouseenter", (event) => this.showTooltip(event, node));
-      circle.addEventListener("mousemove", (event) => this.positionTooltip(event));
-      circle.addEventListener("mouseleave", () => this.hideTooltip());
-      circle.addEventListener("click", () => {
-        this.hideTooltip();
-        void siyuan.openTab({ app: this.app, doc: { id: node.id } });
-      });
-      viewport.appendChild(circle);
+      nodeGroup.appendChild(circle);
+      viewport.appendChild(nodeGroup);
       const labelScore = Math.min(1, (node.degree + 1) / 9);
       if (labelScore >= this.settings.labelThreshold || nodes.length < 160) {
         const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
