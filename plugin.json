@@ -1,0 +1,25 @@
+{
+  "name": "siyuan-clarity-graph",
+  "author": "srihari",
+  "url": "https://github.com/srihari/siyuan-clarity-graph",
+  "version": "0.1.0",
+  "minAppVersion": "3.1.27",
+  "backends": ["windows", "linux", "darwin"],
+  "frontends": ["desktop", "browser-desktop", "desktop-window"],
+  "displayName": {
+    "default": "Clarity Graph"
+  },
+  "description": {
+    "default": "A clearer graph view for SiYuan with colored notes, hover previews, and click-to-open navigation."
+  },
+  "readme": {
+    "default": "README.md"
+  },
+  "funding": {
+    "openCollective": "",
+    "patreon": "",
+    "github": "",
+    "custom": []
+  },
+  "keywords": ["graph", "notes", "links", "visualization"]
+}
