@@ -2,6 +2,10 @@
 
 Clarity Graph is a SiYuan plugin that provides a clearer, more explorable global graph for your notes. It is inspired by Obsidian's global graph and SiYuan's built-in graph view, but focuses on readability, grouping, color control, and quick navigation.
 
+## Project Note
+
+This project was vibe-coded with the help of an AI agent, **Codex**. The plugin was iteratively designed, implemented, debugged, and documented through a human-guided Codex workflow.
+
 ## What It Does
 
 - Shows a global graph of all SiYuan document notes
@@ -11,7 +15,7 @@ Clarity Graph is a SiYuan plugin that provides a clearer, more explorable global
 - Lets you choose custom colors for visible groups
 - Shows useful hover details: note name, path, backlink count, outgoing count, group, tags, and update date
 - Opens the clicked note directly in SiYuan
-- Includes graph controls for arrows, labels, node size, link thickness, line opacity, center force, repel force, collision radius, and link distance
+- Includes graph controls for arrows, labels, node size, link thickness, line opacity, center force, repel force, and link distance
 - Includes insight panels for note count, link count, orphan count, connected groups, and most connected notes
 
 ## Why This Exists
