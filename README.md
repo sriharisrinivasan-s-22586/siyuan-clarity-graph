@@ -93,6 +93,10 @@ siyuan-clarity-graph/
   dist/
     index.js           Built plugin script loaded by SiYuan
     index.css          Built plugin styles loaded by SiYuan
+  index.js             Root copy loaded by unpacked local SiYuan installs
+  index.css            Root copy loaded by unpacked local SiYuan installs
+  scripts/
+    copy-dist-to-root.mjs
   SETUP.md             Platform setup guide
 ```
 
@@ -130,7 +134,7 @@ If the plugin appears in SiYuan but the graph does not open:
 
 - confirm the plugin is enabled
 - restart SiYuan completely
-- confirm `dist/index.js` and `dist/index.css` exist
+- confirm `index.js`, `index.css`, `dist/index.js`, and `dist/index.css` exist
 - open SiYuan developer tools if available and check for plugin errors
 
 If the graph opens but looks empty:

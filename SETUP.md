@@ -15,6 +15,8 @@ After the build, confirm these files exist:
 
 ```text
 plugin.json
+index.js
+index.css
 dist/index.js
 dist/index.css
 ```
@@ -57,6 +59,8 @@ The final folder structure must be:
 
 ```text
 <SiYuan workspace>/data/plugins/siyuan-clarity-graph/plugin.json
+<SiYuan workspace>/data/plugins/siyuan-clarity-graph/index.js
+<SiYuan workspace>/data/plugins/siyuan-clarity-graph/index.css
 <SiYuan workspace>/data/plugins/siyuan-clarity-graph/dist/index.js
 <SiYuan workspace>/data/plugins/siyuan-clarity-graph/dist/index.css
 ```
@@ -227,6 +231,7 @@ Plugin does not appear:
 
 - check the folder path
 - check that `plugin.json` is directly inside `siyuan-clarity-graph`
+- check that `index.js` is directly inside `siyuan-clarity-graph`
 - restart SiYuan
 
 Graph icon does not appear:
