@@ -88,6 +88,7 @@ export default class ClarityGraphPlugin extends Plugin {
         void plugin.refresh();
       },
       beforeDestroy() {
+        plugin.hideTooltip();
         plugin.root = undefined;
       }
     });
@@ -182,6 +183,9 @@ export default class ClarityGraphPlugin extends Plugin {
     this.root.querySelector(".cg-refresh")?.addEventListener("click", () => void this.refresh());
     this.root.querySelector(".cg-fit")?.addEventListener("click", () => this.fitView(this.visibleNodes()));
     this.root.querySelector(".cg-search")?.addEventListener("input", () => this.draw());
+    this.root.querySelector(".cg-stage")?.addEventListener("pointerleave", () => this.hideTooltip());
+    this.root.querySelector(".cg-stage")?.addEventListener("wheel", () => this.hideTooltip(), { passive: true });
+    this.root.addEventListener("scroll", () => this.hideTooltip(), true);
     this.root.querySelector(".cg-reset")?.addEventListener("click", () => {
       this.settings = { ...DEFAULT_SETTINGS, colors: {} };
       saveSettings(this.settings);
@@ -234,6 +238,7 @@ export default class ClarityGraphPlugin extends Plugin {
 
   private async refresh() {
     if (!this.root) return;
+    this.hideTooltip();
     const empty = this.root.querySelector<HTMLElement>(".cg-empty");
     if (empty) {
       empty.style.display = "grid";
@@ -524,10 +529,9 @@ export default class ClarityGraphPlugin extends Plugin {
       circle.setAttribute("fill", node.color);
       circle.addEventListener("mouseenter", (event) => this.showTooltip(event as MouseEvent, node));
       circle.addEventListener("mousemove", (event) => this.positionTooltip(event as MouseEvent));
-      circle.addEventListener("mouseleave", () => {
-        tooltip.style.display = "none";
-      });
+      circle.addEventListener("mouseleave", () => this.hideTooltip());
       circle.addEventListener("click", () => {
+        this.hideTooltip();
         void openTab({ app: this.app, doc: { id: node.id } });
       });
       viewport.appendChild(circle);
@@ -625,6 +629,13 @@ export default class ClarityGraphPlugin extends Plugin {
     `;
     tooltip.style.display = "block";
     this.positionTooltip(event);
+  }
+
+  private hideTooltip() {
+    const tooltip = this.root?.querySelector<HTMLElement>(".cg-tooltip");
+    if (!tooltip) return;
+    tooltip.style.display = "none";
+    tooltip.innerHTML = "";
   }
 
   private positionTooltip(event: MouseEvent) {

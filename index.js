@@ -41,6 +41,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
         void plugin.refresh();
       },
       beforeDestroy() {
+        plugin.hideTooltip();
         plugin.root = void 0;
       }
     });
@@ -128,6 +129,9 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     this.root.querySelector(".cg-refresh")?.addEventListener("click", () => void this.refresh());
     this.root.querySelector(".cg-fit")?.addEventListener("click", () => this.fitView(this.visibleNodes()));
     this.root.querySelector(".cg-search")?.addEventListener("input", () => this.draw());
+    this.root.querySelector(".cg-stage")?.addEventListener("pointerleave", () => this.hideTooltip());
+    this.root.querySelector(".cg-stage")?.addEventListener("wheel", () => this.hideTooltip(), { passive: true });
+    this.root.addEventListener("scroll", () => this.hideTooltip(), true);
     this.root.querySelector(".cg-reset")?.addEventListener("click", () => {
       this.settings = { ...DEFAULT_SETTINGS, colors: {} };
       saveSettings(this.settings);
@@ -176,6 +180,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
   }
   async refresh() {
     if (!this.root) return;
+    this.hideTooltip();
     const empty = this.root.querySelector(".cg-empty");
     if (empty) {
       empty.style.display = "grid";
@@ -431,10 +436,9 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       circle.setAttribute("fill", node.color);
       circle.addEventListener("mouseenter", (event) => this.showTooltip(event, node));
       circle.addEventListener("mousemove", (event) => this.positionTooltip(event));
-      circle.addEventListener("mouseleave", () => {
-        tooltip.style.display = "none";
-      });
+      circle.addEventListener("mouseleave", () => this.hideTooltip());
       circle.addEventListener("click", () => {
+        this.hideTooltip();
         void siyuan.openTab({ app: this.app, doc: { id: node.id } });
       });
       viewport.appendChild(circle);
@@ -525,6 +529,12 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     `;
     tooltip.style.display = "block";
     this.positionTooltip(event);
+  }
+  hideTooltip() {
+    const tooltip = this.root?.querySelector(".cg-tooltip");
+    if (!tooltip) return;
+    tooltip.style.display = "none";
+    tooltip.innerHTML = "";
   }
   positionTooltip(event) {
     const tooltip = this.root?.querySelector(".cg-tooltip");
