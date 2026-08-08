@@ -5,19 +5,21 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
 const siyuan = require("siyuan");
 const TAB_TYPE = "clarity-graph";
 const SETTINGS_KEY = "siyuan-clarity-graph-settings";
+const SETTINGS_VERSION = 2;
 const DEFAULT_COLORS = ["#3b82f6", "#ef4444", "#a855f7", "#22c55e", "#f59e0b", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#14b8a6"];
 const DEFAULT_SETTINGS = {
+  version: SETTINGS_VERSION,
   colorMode: "path",
   includeOrphans: true,
   arrows: true,
-  labelThreshold: 0.48,
-  nodeSize: 1.8,
-  linkThickness: 2.4,
-  lineOpacity: 0.42,
-  centerStrength: 0.42,
-  repelForce: 10,
-  collideRadius: 1.2,
-  linkDistance: 120,
+  labelThreshold: 0.14,
+  nodeSize: 2.45,
+  linkThickness: 1.8,
+  lineOpacity: 0.5,
+  centerStrength: 0.18,
+  repelForce: 7.5,
+  collideRadius: 1.55,
+  linkDistance: 86,
   colors: {}
 };
 class ClarityGraphPlugin extends siyuan.Plugin {
@@ -182,6 +184,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     try {
       this.graph = await this.loadGraph();
       this.applyGroupsAndColors();
+      this.seedPositions();
       this.simulate();
       this.fitView(this.visibleNodes());
       this.draw();
@@ -213,8 +216,8 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       inbound: 0,
       outbound: 0,
       degree: 0,
-      x: spiralX(index),
-      y: spiralY(index),
+      x: seededRange(`${row.id}:x`, -260, 260),
+      y: seededRange(`${row.id}:y`, -210, 210),
       vx: 0,
       vy: 0
     }));
@@ -267,6 +270,24 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       node.color = this.settings.colors[key] ?? fallback;
     }
     this.renderInsights();
+  }
+  seedPositions() {
+    const nodes = this.graph.nodes;
+    const centers = centersForGroups(nodes);
+    const groupSeen = /* @__PURE__ */ new Map();
+    for (const node of nodes) {
+      const groupIndex = groupSeen.get(node.groupKey) ?? 0;
+      groupSeen.set(node.groupKey, groupIndex + 1);
+      const center = centers.get(node.groupKey) ?? { x: 0, y: 0 };
+      const orbit = node.degree === 0 ? 95 + seededRange(`${node.id}:orphanOrbit`, 0, 170) : 28 + node.degree * 8;
+      const angle = seededRange(`${node.id}:angle`, 0, Math.PI * 2) + groupIndex * 0.47;
+      const jitterX = seededRange(`${node.id}:jx`, -64, 64);
+      const jitterY = seededRange(`${node.id}:jy`, -64, 64);
+      node.x = center.x + Math.cos(angle) * orbit + jitterX;
+      node.y = center.y + Math.sin(angle) * orbit + jitterY;
+      node.vx = 0;
+      node.vy = 0;
+    }
   }
   groupKeyFor(node) {
     if (this.settings.colorMode === "component") return node.degree === 0 ? `Orphan: ${node.title}` : node.component;
@@ -401,7 +422,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       viewport.appendChild(line);
     }
     for (const node of nodes) {
-      const radius = (4 + Math.sqrt(node.degree + 1) * 2.2) * this.settings.nodeSize;
+      const radius = (3.8 + Math.sqrt(node.degree + 1) * 1.9) * this.settings.nodeSize;
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       circle.setAttribute("class", `cg-node${node.degree === 0 ? " is-orphan" : ""}`);
       circle.setAttribute("cx", String(node.x));
@@ -417,8 +438,8 @@ class ClarityGraphPlugin extends siyuan.Plugin {
         void siyuan.openTab({ app: this.app, doc: { id: node.id } });
       });
       viewport.appendChild(circle);
-      const labelScore = Math.min(1, (node.degree + 1) / 12);
-      if (labelScore >= this.settings.labelThreshold || nodes.length < 80) {
+      const labelScore = Math.min(1, (node.degree + 1) / 9);
+      if (labelScore >= this.settings.labelThreshold || nodes.length < 160) {
         const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
         label.setAttribute("class", "cg-label");
         label.setAttribute("x", String(node.x + radius + 5));
@@ -441,7 +462,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     const maxY = Math.max(...ys);
     const width = stage.clientWidth || 900;
     const height = stage.clientHeight || 620;
-    const scale = Math.min(width / Math.max(maxX - minX + 180, 1), height / Math.max(maxY - minY + 180, 1), 1.8);
+    const scale = Math.min(width / Math.max(maxX - minX + 110, 1), height / Math.max(maxY - minY + 110, 1), 1.7);
     this.view = {
       scale,
       x: width / 2 - (minX + maxX) / 2 * scale,
@@ -550,10 +571,12 @@ function assignComponents(nodes, links) {
 }
 function centersForGroups(nodes) {
   const keys = [...new Set(nodes.map((node) => node.groupKey))];
-  const radius = Math.max(260, keys.length * 42);
+  const spread = Math.max(190, Math.sqrt(keys.length) * 150);
   return new Map(keys.map((key, index) => {
-    const angle = index / Math.max(keys.length, 1) * Math.PI * 2;
-    return [key, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius }];
+    const angle = seededRange(`${key}:centerAngle`, 0, Math.PI * 2);
+    const radius = seededRange(`${key}:centerRadius`, 20, spread);
+    const rowBias = (index % 3 - 1) * seededRange(`${key}:bias`, 25, 95);
+    return [key, { x: Math.cos(angle) * radius + rowBias, y: Math.sin(angle) * radius - rowBias * 0.35 }];
   }));
 }
 function countComponents(nodes) {
@@ -569,18 +592,24 @@ function lastPathSegment(hpath) {
   const parts = hpath.split("/").filter(Boolean);
   return parts[parts.length - 1] ?? "";
 }
-function spiralX(index) {
-  const angle = index * 2.399963;
-  const radius = 18 * Math.sqrt(index + 1);
-  return Math.cos(angle) * radius;
-}
-function spiralY(index) {
-  const angle = index * 2.399963;
-  const radius = 18 * Math.sqrt(index + 1);
-  return Math.sin(angle) * radius;
-}
 function truncate(value, length) {
   return value.length > length ? `${value.slice(0, length - 1)}...` : value;
+}
+function seededRange(seed, min, max) {
+  return min + seededUnit(seed) * (max - min);
+}
+function seededUnit(seed) {
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  hash += hash << 13;
+  hash ^= hash >>> 7;
+  hash += hash << 3;
+  hash ^= hash >>> 17;
+  hash += hash << 5;
+  return (hash >>> 0) % 1e4 / 1e4;
 }
 function formatDate(value) {
   if (value.length < 8) return value;
@@ -606,7 +635,11 @@ function loadSettings() {
   try {
     const stored = localStorage.getItem(SETTINGS_KEY);
     if (!stored) return { ...DEFAULT_SETTINGS, colors: {} };
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(stored), colors: JSON.parse(stored).colors ?? {} };
+    const parsed = JSON.parse(stored);
+    if (parsed.version !== SETTINGS_VERSION) {
+      return { ...DEFAULT_SETTINGS, colors: parsed.colors ?? {} };
+    }
+    return { ...DEFAULT_SETTINGS, ...parsed, colors: parsed.colors ?? {} };
   } catch {
     return { ...DEFAULT_SETTINGS, colors: {} };
   }
