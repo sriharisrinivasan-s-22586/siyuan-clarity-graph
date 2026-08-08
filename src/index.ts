@@ -14,7 +14,6 @@ type Settings = {
   lineOpacity: number;
   centerStrength: number;
   repelForce: number;
-  collideRadius: number;
   linkDistance: number;
   colors: Record<string, string>;
 };
@@ -52,7 +51,7 @@ type GraphData = {
 
 const TAB_TYPE = "clarity-graph";
 const SETTINGS_KEY = "siyuan-clarity-graph-settings";
-const SETTINGS_VERSION = 2;
+const SETTINGS_VERSION = 3;
 const DEFAULT_COLORS = ["#3b82f6", "#ef4444", "#a855f7", "#22c55e", "#f59e0b", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#14b8a6"];
 const DEFAULT_SETTINGS: Settings = {
   version: SETTINGS_VERSION,
@@ -65,7 +64,6 @@ const DEFAULT_SETTINGS: Settings = {
   lineOpacity: 0.5,
   centerStrength: 0.18,
   repelForce: 7.5,
-  collideRadius: 1.55,
   linkDistance: 86,
   colors: {}
 };
@@ -166,7 +164,6 @@ export default class ClarityGraphPlugin extends Plugin {
             <h2>Forces</h2>
             ${rangeControl("centerStrength", "Center force", 0.05, 1, 0.01)}
             ${rangeControl("repelForce", "Repel force", 2, 28, 0.25)}
-            ${rangeControl("collideRadius", "Collide radius", 0.5, 3, 0.05)}
             ${rangeControl("linkDistance", "Link distance", 40, 260, 5)}
             <button class="cg-reset" type="button">Reset</button>
           </aside>
@@ -556,7 +553,7 @@ export default class ClarityGraphPlugin extends Plugin {
         label.setAttribute("x", String(node.x + radius + 5));
         label.setAttribute("y", String(node.y + 4));
         label.textContent = truncate(node.title, 28);
-        viewport.appendChild(label);
+        nodeGroup.appendChild(label);
       }
     }
 
@@ -628,7 +625,15 @@ export default class ClarityGraphPlugin extends Plugin {
     svg.addEventListener("wheel", (event) => {
       event.preventDefault();
       const factor = event.deltaY > 0 ? 0.92 : 1.08;
-      this.view.scale = Math.max(0.15, Math.min(4, this.view.scale * factor));
+      const rect = svg.getBoundingClientRect();
+      const anchorX = rect.width / 2;
+      const anchorY = rect.height / 2;
+      const graphX = (anchorX - this.view.x) / this.view.scale;
+      const graphY = (anchorY - this.view.y) / this.view.scale;
+      const nextScale = Math.max(0.15, Math.min(4, this.view.scale * factor));
+      this.view.scale = nextScale;
+      this.view.x = anchorX - graphX * nextScale;
+      this.view.y = anchorY - graphY * nextScale;
       this.draw();
     }, { passive: false });
   }

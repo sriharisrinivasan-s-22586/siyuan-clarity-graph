@@ -271,18 +271,14 @@
   filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.38));
 }
 
-.cg-node.is-orphan {
-  stroke: rgba(255, 255, 255, 0.52);
-  stroke-dasharray: 2 2;
-}
-
 .cg-node-group:hover .cg-node {
   stroke: #fff;
   stroke-width: 2.6;
 }
 
 .cg-label {
-  pointer-events: none;
+  pointer-events: painted;
+  cursor: pointer;
   fill: #f6f7fb;
   font-size: 13px;
   font-weight: 650;
