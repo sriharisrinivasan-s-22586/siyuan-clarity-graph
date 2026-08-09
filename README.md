@@ -16,7 +16,7 @@ This project was vibe-coded with the help of an AI agent, **Codex**. The plugin 
 - Shows useful hover details: note name, path, backlink count, outgoing count, group, tags, and update date
 - Opens the clicked note directly in SiYuan
 - Includes graph controls for arrows, labels, node size, link thickness, line opacity, center force, repel force, and link distance
-- Includes insight panels for note count, link count, orphan count, connected groups, and most connected notes
+- Keeps color controls in the right panel so the graph canvas has more room
 
 ## Why This Exists
 
@@ -35,9 +35,7 @@ The plugin opens a custom **Global Graph** tab in SiYuan.
 Main areas:
 
 - **Graph canvas**: pan, zoom, hover, and click notes
-- **Insights panel**: summary stats and most connected notes
-- **Groups panel**: group color pickers
-- **Controls panel**: filters, display settings, and force layout settings
+- **Right controls panel**: filters, display settings, force layout settings, and group color pickers
 
 Useful modes:
 

@@ -61,10 +61,9 @@
 .cg-layout {
   min-height: 0;
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr) 310px;
+  grid-template-columns: minmax(0, 1fr) 310px;
 }
 
-.cg-insights,
 .cg-controls {
   min-height: 0;
   overflow: auto;
@@ -72,15 +71,10 @@
   background: #202126;
 }
 
-.cg-insights {
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-}
-
 .cg-controls {
   border-left: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.cg-insights h2,
 .cg-controls h2 {
   margin: 10px 0 12px;
   color: #d7dae2;
@@ -88,68 +82,12 @@
   letter-spacing: 0;
 }
 
-.cg-stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.cg-stats > div {
-  padding: 10px;
-  border-radius: 8px;
-  background: #292b32;
-}
-
-.cg-stats strong {
-  display: block;
-  color: #fff;
-  font-size: 22px;
-}
-
-.cg-stats span,
-.cg-stats small {
-  color: #a7adba;
-  font-size: 12px;
-}
-
-.cg-stats section {
-  grid-column: 1 / -1;
-  margin-top: 8px;
-}
-
-.cg-stats h3 {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: #aeb4c1;
-}
-
-.cg-hub {
-  width: 100%;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #d8dbe3;
-  cursor: pointer;
-  text-align: left;
-}
-
-.cg-hub:hover {
-  background: #30333c;
-}
-
-.cg-hub span {
-  color: #8fb6ff;
-}
-
 .cg-groups {
   display: grid;
   gap: 7px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .cg-color-row {
@@ -336,7 +274,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .cg-insights,
   .cg-controls {
     display: none;
   }

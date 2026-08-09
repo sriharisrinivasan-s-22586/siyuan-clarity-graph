@@ -84,12 +84,6 @@ class ClarityGraphPlugin extends siyuan.Plugin {
           <button class="cg-icon cg-refresh" type="button" title="Refresh graph">Refresh</button>
         </header>
         <main class="cg-layout">
-          <aside class="cg-insights">
-            <h2>Insights</h2>
-            <div class="cg-stats"></div>
-            <h2>Groups</h2>
-            <div class="cg-groups"></div>
-          </aside>
           <section class="cg-stage">
             <svg class="cg-svg" role="img" aria-label="SiYuan global note graph"></svg>
             <div class="cg-tooltip"></div>
@@ -114,6 +108,8 @@ class ClarityGraphPlugin extends siyuan.Plugin {
             ${rangeControl("centerStrength", "Center force", 0.05, 1, 0.01)}
             ${rangeControl("repelForce", "Repel force", 2, 28, 0.25)}
             ${rangeControl("linkDistance", "Link distance", 40, 260, 5)}
+            <h2>Colors</h2>
+            <div class="cg-groups"></div>
             <button class="cg-reset" type="button">Reset</button>
           </aside>
         </main>
@@ -302,21 +298,8 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     if (!this.root) return;
     const stats = this.root.querySelector(".cg-stats");
     const groups = this.root.querySelector(".cg-groups");
-    if (!stats || !groups) return;
-    const total = this.graph.nodes.length;
-    const linked = this.graph.nodes.filter((node) => node.degree > 0).length;
-    const orphans = total - linked;
-    const hubs = [...this.graph.nodes].sort((a, b) => b.degree - a.degree).slice(0, 5);
-    stats.innerHTML = `
-      <div><strong>${total}</strong><span>notes</span></div>
-      <div><strong>${this.graph.links.length}</strong><span>links</span></div>
-      <div><strong>${orphans}</strong><span>orphans</span></div>
-      <div><strong>${countComponents(this.graph.nodes)}</strong><span>groups</span></div>
-      <section><h3>Most connected</h3>${hubs.map((node) => `<button class="cg-hub" data-id="${node.id}">${escapeHtml(node.title)} <span>${node.degree}</span></button>`).join("")}</section>
-    `;
-    stats.querySelectorAll(".cg-hub").forEach((button) => {
-      button.addEventListener("click", () => this.focusNode(button.dataset.id ?? ""));
-    });
+    if (!groups) return;
+    if (stats) stats.innerHTML = "";
     const groupCounts = /* @__PURE__ */ new Map();
     for (const node of this.graph.nodes) groupCounts.set(node.groupKey, (groupCounts.get(node.groupKey) ?? 0) + 1);
     groups.innerHTML = [...groupCounts].sort((a, b) => b[1] - a[1]).slice(0, 24).map(([key, count]) => `
@@ -430,9 +413,6 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       const targetRadius = Math.max(radius + 10, 22);
       const nodeGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
       nodeGroup.setAttribute("class", "cg-node-group");
-      nodeGroup.addEventListener("mouseenter", (event) => this.showTooltip(event, node));
-      nodeGroup.addEventListener("mousemove", (event) => this.positionTooltip(event));
-      nodeGroup.addEventListener("mouseleave", () => this.hideTooltip());
       nodeGroup.addEventListener("click", () => {
         this.hideTooltip();
         void siyuan.openTab({ app: this.app, doc: { id: node.id } });
@@ -514,19 +494,23 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     let lastX = 0;
     let lastY = 0;
     svg.addEventListener("pointerdown", (event) => {
-      if (event.target.classList.contains("cg-node")) return;
+      if (event.target.closest(".cg-node-group")) return;
       dragging = true;
       lastX = event.clientX;
       lastY = event.clientY;
       svg.setPointerCapture(event.pointerId);
     });
     svg.addEventListener("pointermove", (event) => {
-      if (!dragging) return;
-      this.view.x += event.clientX - lastX;
-      this.view.y += event.clientY - lastY;
-      lastX = event.clientX;
-      lastY = event.clientY;
-      this.draw();
+      if (dragging) {
+        this.hideTooltip();
+        this.view.x += event.clientX - lastX;
+        this.view.y += event.clientY - lastY;
+        lastX = event.clientX;
+        lastY = event.clientY;
+        this.draw();
+        return;
+      }
+      this.updateHoverFromPointer(event);
     });
     svg.addEventListener("pointerup", () => {
       dragging = false;
@@ -559,6 +543,38 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     `;
     tooltip.style.display = "block";
     this.positionTooltip(event);
+  }
+  updateHoverFromPointer(event) {
+    const node = this.nodeAtPointer(event);
+    if (!node) {
+      this.hideTooltip();
+      return;
+    }
+    this.showTooltip(event, node);
+  }
+  nodeAtPointer(event) {
+    const svg = this.root?.querySelector(".cg-svg");
+    if (!svg) return void 0;
+    const rect = svg.getBoundingClientRect();
+    const graphX = (event.clientX - rect.left - this.view.x) / this.view.scale;
+    const graphY = (event.clientY - rect.top - this.view.y) / this.view.scale;
+    const visibleNodes = this.visibleNodes();
+    for (const node of visibleNodes) {
+      const radius = this.nodeRadius(node);
+      const dx = graphX - node.x;
+      const dy = graphY - node.y;
+      if (Math.hypot(dx, dy) <= Math.max(radius + 12, 24)) return node;
+      const labelScore = Math.min(1, (node.degree + 1) / 9);
+      if (labelScore >= this.settings.labelThreshold || visibleNodes.length < 160) {
+        const labelText = truncate(node.title, 28);
+        const labelX = node.x + radius + 5;
+        const labelY = node.y + 4;
+        const withinLabelX = graphX >= labelX - 6 && graphX <= labelX + labelText.length * 7.8 + 12;
+        const withinLabelY = graphY >= labelY - 16 && graphY <= labelY + 8;
+        if (withinLabelX && withinLabelY) return node;
+      }
+    }
+    return void 0;
   }
   hideTooltip() {
     const tooltip = this.root?.querySelector(".cg-tooltip");
@@ -633,9 +649,6 @@ function centersForGroups(nodes) {
     const rowBias = (index % 3 - 1) * seededRange(`${key}:bias`, 25, 95);
     return [key, { x: Math.cos(angle) * radius + rowBias, y: Math.sin(angle) * radius - rowBias * 0.35 }];
   }));
-}
-function countComponents(nodes) {
-  return new Set(nodes.filter((node) => node.degree > 0).map((node) => node.component)).size;
 }
 function firstTag(tag) {
   return tag.match(/#([^#]+)#/)?.[1] || "No tag";
