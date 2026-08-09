@@ -214,7 +214,6 @@ export default class ClarityGraphPlugin extends Plugin {
     });
     this.root.querySelector(".cg-search")?.addEventListener("input", () => this.draw());
     this.root.querySelector(".cg-stage")?.addEventListener("pointerleave", () => this.hideTooltip());
-    this.root.querySelector(".cg-stage")?.addEventListener("wheel", () => this.hideTooltip(), { passive: true });
     this.root.addEventListener("scroll", () => this.hideTooltip(), true);
     this.root.querySelector(".cg-reset")?.addEventListener("click", () => {
       this.settings = { ...DEFAULT_SETTINGS, colors: {} };
@@ -811,25 +810,6 @@ export default class ClarityGraphPlugin extends Plugin {
     svg.addEventListener("pointerup", () => {
       dragging = false;
     });
-    svg.addEventListener("wheel", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const factor = Math.max(0.9, Math.min(1.1, Math.exp(-event.deltaY * 0.002)));
-      const rect = svg.getBoundingClientRect();
-      const pointerX = event.clientX - rect.left;
-      const pointerY = event.clientY - rect.top;
-      const centerBias = 0.72;
-      const anchorX = rect.width * 0.5 * centerBias + pointerX * (1 - centerBias);
-      const anchorY = rect.height * 0.5 * centerBias + pointerY * (1 - centerBias);
-      const graphX = (anchorX - this.view.x) / this.view.scale;
-      const graphY = (anchorY - this.view.y) / this.view.scale;
-      const nextScale = Math.max(0.15, Math.min(4, this.view.scale * factor));
-      this.view.scale = nextScale;
-      this.view.x = anchorX - graphX * nextScale;
-      this.view.y = anchorY - graphY * nextScale;
-      this.clampView();
-      this.scheduleViewTransform();
-    }, { passive: false });
   }
 
   private clampView() {
