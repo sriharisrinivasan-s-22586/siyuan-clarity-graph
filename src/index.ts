@@ -1048,29 +1048,30 @@ function notebookAreaPoints(
   maxY: number,
   radiusFor: (node: GraphNode) => number
 ) {
-  const samples: Array<{ x: number; y: number }> = [
-    { x: minX, y: minY },
-    { x: (minX + maxX) / 2, y: minY - seededRange(`${seed}:top`, 8, 40) },
-    { x: maxX, y: minY },
-    { x: maxX + seededRange(`${seed}:right`, 8, 40), y: (minY + maxY) / 2 },
-    { x: maxX, y: maxY },
-    { x: (minX + maxX) / 2, y: maxY + seededRange(`${seed}:bottom`, 8, 40) },
-    { x: minX, y: maxY },
-    { x: minX - seededRange(`${seed}:left`, 8, 40), y: (minY + maxY) / 2 }
-  ];
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  const pointCount = 22;
+  const points = Array.from({ length: pointCount }, (_, index) => {
+    const angle = (index / pointCount) * Math.PI * 2;
+    const unitX = Math.cos(angle);
+    const unitY = Math.sin(angle);
+    const requiredRadius = Math.max(
+      120,
+      ...nodes.map((node) => {
+        const dx = node.x - centerX;
+        const dy = node.y - centerY;
+        const projection = dx * unitX + dy * unitY;
+        return projection + radiusFor(node) + 96;
+      })
+    );
+    const organicPadding = seededRange(`${seed}:organic:${index}`, 6, 52);
+    return {
+      x: centerX + unitX * (requiredRadius + organicPadding),
+      y: centerY + unitY * (requiredRadius + organicPadding)
+    };
+  });
 
-  for (const node of nodes) {
-    const radius = radiusFor(node) + 76;
-    for (let index = 0; index < 8; index += 1) {
-      const angle = (index / 8) * Math.PI * 2;
-      samples.push({
-        x: node.x + Math.cos(angle) * radius,
-        y: node.y + Math.sin(angle) * radius
-      });
-    }
-  }
-
-  return convexHull(samples)
+  return points
     .map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`)
     .join(" ");
 }

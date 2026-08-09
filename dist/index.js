@@ -866,48 +866,29 @@ function uniqueSorted(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 function notebookAreaPoints(seed, nodes, minX, minY, maxX, maxY, radiusFor) {
-  const samples = [
-    { x: minX, y: minY },
-    { x: (minX + maxX) / 2, y: minY - seededRange(`${seed}:top`, 8, 40) },
-    { x: maxX, y: minY },
-    { x: maxX + seededRange(`${seed}:right`, 8, 40), y: (minY + maxY) / 2 },
-    { x: maxX, y: maxY },
-    { x: (minX + maxX) / 2, y: maxY + seededRange(`${seed}:bottom`, 8, 40) },
-    { x: minX, y: maxY },
-    { x: minX - seededRange(`${seed}:left`, 8, 40), y: (minY + maxY) / 2 }
-  ];
-  for (const node of nodes) {
-    const radius = radiusFor(node) + 76;
-    for (let index = 0; index < 8; index += 1) {
-      const angle = index / 8 * Math.PI * 2;
-      samples.push({
-        x: node.x + Math.cos(angle) * radius,
-        y: node.y + Math.sin(angle) * radius
-      });
-    }
-  }
-  return convexHull(samples).map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
-}
-function convexHull(points) {
-  const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
-  if (sorted.length <= 1) return sorted;
-  const lower = [];
-  for (const point of sorted) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) lower.pop();
-    lower.push(point);
-  }
-  const upper = [];
-  for (let index = sorted.length - 1; index >= 0; index -= 1) {
-    const point = sorted[index];
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) upper.pop();
-    upper.push(point);
-  }
-  lower.pop();
-  upper.pop();
-  return lower.concat(upper);
-}
-function cross(a, b, c) {
-  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  const pointCount = 22;
+  const points = Array.from({ length: pointCount }, (_, index) => {
+    const angle = index / pointCount * Math.PI * 2;
+    const unitX = Math.cos(angle);
+    const unitY = Math.sin(angle);
+    const requiredRadius = Math.max(
+      120,
+      ...nodes.map((node) => {
+        const dx = node.x - centerX;
+        const dy = node.y - centerY;
+        const projection = dx * unitX + dy * unitY;
+        return projection + radiusFor(node) + 96;
+      })
+    );
+    const organicPadding = seededRange(`${seed}:organic:${index}`, 6, 52);
+    return {
+      x: centerX + unitX * (requiredRadius + organicPadding),
+      y: centerY + unitY * (requiredRadius + organicPadding)
+    };
+  });
+  return points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
 }
 function hexToRgba(hex, alpha) {
   const normalized = hex.replace("#", "");
