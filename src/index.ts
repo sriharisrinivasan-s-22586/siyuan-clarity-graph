@@ -739,19 +739,17 @@ export default class ClarityGraphPlugin extends Plugin {
 
     for (const [key, notebookNodes] of byNotebook) {
       if (!notebookNodes.length) continue;
-      const xs = notebookNodes.map((node) => node.x);
-      const ys = notebookNodes.map((node) => node.y);
-      const minX = Math.min(...xs) - 90;
-      const maxX = Math.max(...xs) + 90;
-      const minY = Math.min(...ys) - 70;
-      const maxY = Math.max(...ys) + 70;
+      const minX = Math.min(...notebookNodes.map((node) => node.x - this.nodeRadius(node))) - 130;
+      const maxX = Math.max(...notebookNodes.map((node) => node.x + this.nodeRadius(node))) + 130;
+      const minY = Math.min(...notebookNodes.map((node) => node.y - this.nodeRadius(node))) - 110;
+      const maxY = Math.max(...notebookNodes.map((node) => node.y + this.nodeRadius(node))) + 110;
       const color = this.settings.colors[key] ?? colorFor(key, [...byNotebook.keys()], true);
-      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      path.setAttribute("class", "cg-notebook-area");
-      path.setAttribute("d", notebookAreaPath(key, minX, minY, maxX, maxY));
-      path.setAttribute("fill", hexToRgba(color, 0.08));
-      path.setAttribute("stroke", hexToRgba(color, 0.36));
-      viewport.appendChild(path);
+      const area = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+      area.setAttribute("class", "cg-notebook-area");
+      area.setAttribute("points", notebookAreaPoints(key, notebookNodes, minX, minY, maxX, maxY, (node) => this.nodeRadius(node)));
+      area.setAttribute("fill", hexToRgba(color, 0.08));
+      area.setAttribute("stroke", hexToRgba(color, 0.36));
+      viewport.appendChild(area);
 
       const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
       label.setAttribute("class", "cg-notebook-label");
@@ -1041,20 +1039,63 @@ function uniqueSorted(values: string[]) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
-function notebookAreaPath(seed: string, minX: number, minY: number, maxX: number, maxY: number) {
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  const rx = Math.max((maxX - minX) / 2, 90);
-  const ry = Math.max((maxY - minY) / 2, 70);
-  const points = Array.from({ length: 12 }, (_, index) => {
-    const angle = (index / 12) * Math.PI * 2;
-    const wobble = seededRange(`${seed}:area:${index}`, 0.9, 1.12);
-    return {
-      x: cx + Math.cos(angle) * rx * wobble,
-      y: cy + Math.sin(angle) * ry * wobble
-    };
-  });
-  return `${points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ")} Z`;
+function notebookAreaPoints(
+  seed: string,
+  nodes: GraphNode[],
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+  radiusFor: (node: GraphNode) => number
+) {
+  const samples: Array<{ x: number; y: number }> = [
+    { x: minX, y: minY },
+    { x: (minX + maxX) / 2, y: minY - seededRange(`${seed}:top`, 8, 40) },
+    { x: maxX, y: minY },
+    { x: maxX + seededRange(`${seed}:right`, 8, 40), y: (minY + maxY) / 2 },
+    { x: maxX, y: maxY },
+    { x: (minX + maxX) / 2, y: maxY + seededRange(`${seed}:bottom`, 8, 40) },
+    { x: minX, y: maxY },
+    { x: minX - seededRange(`${seed}:left`, 8, 40), y: (minY + maxY) / 2 }
+  ];
+
+  for (const node of nodes) {
+    const radius = radiusFor(node) + 76;
+    for (let index = 0; index < 8; index += 1) {
+      const angle = (index / 8) * Math.PI * 2;
+      samples.push({
+        x: node.x + Math.cos(angle) * radius,
+        y: node.y + Math.sin(angle) * radius
+      });
+    }
+  }
+
+  return convexHull(samples)
+    .map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`)
+    .join(" ");
+}
+
+function convexHull(points: Array<{ x: number; y: number }>) {
+  const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (sorted.length <= 1) return sorted;
+  const lower: Array<{ x: number; y: number }> = [];
+  for (const point of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) lower.pop();
+    lower.push(point);
+  }
+  const upper: Array<{ x: number; y: number }> = [];
+  for (let index = sorted.length - 1; index >= 0; index -= 1) {
+    const point = sorted[index];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) upper.pop();
+    upper.push(point);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+function cross(a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 }
 
 function hexToRgba(hex: string, alpha: number) {
