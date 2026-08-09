@@ -609,9 +609,12 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       const minY = Math.min(...notebookNodes.map((node) => node.y - this.nodeRadius(node))) - 110;
       const maxY = Math.max(...notebookNodes.map((node) => node.y + this.nodeRadius(node))) + 110;
       const color = this.settings.colors[key] ?? colorFor(key, [...byNotebook.keys()], true);
-      const area = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+      const area = document.createElementNS("http://www.w3.org/2000/svg", "ellipse");
       area.setAttribute("class", "cg-notebook-area");
-      area.setAttribute("points", notebookAreaPoints(key, notebookNodes, minX, minY, maxX, maxY, (node) => this.nodeRadius(node)));
+      area.setAttribute("cx", String((minX + maxX) / 2));
+      area.setAttribute("cy", String((minY + maxY) / 2));
+      area.setAttribute("rx", String(Math.max((maxX - minX) / 2, 150)));
+      area.setAttribute("ry", String(Math.max((maxY - minY) / 2, 130)));
       area.setAttribute("fill", hexToRgba(color, 0.08));
       area.setAttribute("stroke", hexToRgba(color, 0.36));
       viewport.appendChild(area);
@@ -869,31 +872,6 @@ function displayColorKey(key) {
 }
 function uniqueSorted(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
-}
-function notebookAreaPoints(seed, nodes, minX, minY, maxX, maxY, radiusFor) {
-  const centerX = (minX + maxX) / 2;
-  const centerY = (minY + maxY) / 2;
-  const pointCount = 22;
-  const points = Array.from({ length: pointCount }, (_, index) => {
-    const angle = index / pointCount * Math.PI * 2;
-    const unitX = Math.cos(angle);
-    const unitY = Math.sin(angle);
-    const requiredRadius = Math.max(
-      120,
-      ...nodes.map((node) => {
-        const dx = node.x - centerX;
-        const dy = node.y - centerY;
-        const projection = dx * unitX + dy * unitY;
-        return projection + radiusFor(node) + 96;
-      })
-    );
-    const organicPadding = seededRange(`${seed}:organic:${index}`, 6, 52);
-    return {
-      x: centerX + unitX * (requiredRadius + organicPadding),
-      y: centerY + unitY * (requiredRadius + organicPadding)
-    };
-  });
-  return points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
 }
 function hexToRgba(hex, alpha) {
   const normalized = hex.replace("#", "");
