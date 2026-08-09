@@ -540,6 +540,15 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       target.setAttribute("cy", String(node.y));
       target.setAttribute("r", String(targetRadius));
       nodeGroup.appendChild(target);
+      if (node.hasSubLinks) {
+        const halo = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        halo.setAttribute("class", "cg-node-halo");
+        halo.setAttribute("cx", String(node.x));
+        halo.setAttribute("cy", String(node.y));
+        halo.setAttribute("r", String(radius + 8));
+        halo.setAttribute("stroke", lightenHex(node.color, 0.38));
+        nodeGroup.appendChild(halo);
+      }
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       circle.setAttribute("class", `cg-node${node.degree === 0 ? " is-orphan" : ""}${node.isTopLevel ? " is-primary" : ""}${node.hasSubLinks ? " is-hub" : ""}`);
       circle.setAttribute("cx", String(node.x));
@@ -609,17 +618,14 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     }
     for (const [key, notebookNodes] of byNotebook) {
       if (!notebookNodes.length) continue;
-      const minX = Math.min(...notebookNodes.map((node) => node.x - this.nodeRadius(node))) - 130;
-      const maxX = Math.max(...notebookNodes.map((node) => node.x + this.nodeRadius(node))) + 130;
-      const minY = Math.min(...notebookNodes.map((node) => node.y - this.nodeRadius(node))) - 110;
-      const maxY = Math.max(...notebookNodes.map((node) => node.y + this.nodeRadius(node))) + 110;
+      const minX = Math.min(...notebookNodes.map((node) => node.x - this.nodeRadius(node))) - 170;
+      const maxX = Math.max(...notebookNodes.map((node) => node.x + this.nodeRadius(node))) + 170;
+      const minY = Math.min(...notebookNodes.map((node) => node.y - this.nodeRadius(node))) - 140;
+      const maxY = Math.max(...notebookNodes.map((node) => node.y + this.nodeRadius(node))) + 140;
       const color = this.settings.colors[key] ?? colorFor(key, [...byNotebook.keys()], true);
-      const area = document.createElementNS("http://www.w3.org/2000/svg", "ellipse");
+      const area = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
       area.setAttribute("class", "cg-notebook-area");
-      area.setAttribute("cx", String((minX + maxX) / 2));
-      area.setAttribute("cy", String((minY + maxY) / 2));
-      area.setAttribute("rx", String(Math.max((maxX - minX) / 2, 150)));
-      area.setAttribute("ry", String(Math.max((maxY - minY) / 2, 130)));
+      area.setAttribute("points", `${minX},${minY} ${maxX},${minY} ${maxX},${maxY} ${minX},${maxY}`);
       area.setAttribute("fill", hexToRgba(color, 0.08));
       area.setAttribute("stroke", hexToRgba(color, 0.36));
       viewport.appendChild(area);

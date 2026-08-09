@@ -240,8 +240,9 @@
 
 .cg-notebook-area {
   pointer-events: none;
-  stroke-width: 1.6;
-  stroke-dasharray: 10 8;
+  stroke-width: 1.8;
+  stroke-dasharray: 14 9;
+  stroke-linejoin: round;
 }
 
 .cg-notebook-label {
@@ -275,17 +276,26 @@
   filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.38));
 }
 
+.cg-node-halo {
+  fill: transparent;
+  stroke-width: 5;
+  stroke-opacity: 0.92;
+  pointer-events: none;
+  animation: cg-halo-pulse 1.35s ease-in-out 0s 5;
+  filter: drop-shadow(0 0 18px rgba(255, 221, 120, 0.62));
+}
+
 .cg-node.is-primary {
   stroke: #ffffff;
-  stroke-width: 3;
-  filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.22)) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.42));
+  stroke-width: 4;
+  filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.46)) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.42));
 }
 
 .cg-node.is-hub {
   stroke: #fff7d6;
-  stroke-width: 4;
+  stroke-width: 5.5;
   animation: cg-hub-pulse 1.4s ease-out 0s 3;
-  filter: drop-shadow(0 0 18px rgba(255, 210, 90, 0.42)) drop-shadow(0 5px 14px rgba(0, 0, 0, 0.5));
+  filter: drop-shadow(0 0 26px rgba(255, 210, 90, 0.72)) drop-shadow(0 5px 14px rgba(0, 0, 0, 0.5));
 }
 
 .cg-node-group:hover .cg-node {
@@ -300,16 +310,31 @@
 
 @keyframes cg-hub-pulse {
   0% {
-    stroke-width: 4;
-    filter: drop-shadow(0 0 4px rgba(255, 210, 90, 0.2)) drop-shadow(0 5px 14px rgba(0, 0, 0, 0.5));
+    stroke-width: 4.5;
+    filter: drop-shadow(0 0 8px rgba(255, 210, 90, 0.34)) drop-shadow(0 5px 14px rgba(0, 0, 0, 0.5));
   }
   45% {
-    stroke-width: 7;
-    filter: drop-shadow(0 0 26px rgba(255, 210, 90, 0.75)) drop-shadow(0 5px 14px rgba(0, 0, 0, 0.5));
+    stroke-width: 9;
+    filter: drop-shadow(0 0 36px rgba(255, 230, 120, 0.95)) drop-shadow(0 5px 14px rgba(0, 0, 0, 0.5));
   }
   100% {
-    stroke-width: 4;
-    filter: drop-shadow(0 0 18px rgba(255, 210, 90, 0.42)) drop-shadow(0 5px 14px rgba(0, 0, 0, 0.5));
+    stroke-width: 5.5;
+    filter: drop-shadow(0 0 26px rgba(255, 210, 90, 0.72)) drop-shadow(0 5px 14px rgba(0, 0, 0, 0.5));
+  }
+}
+
+@keyframes cg-halo-pulse {
+  0% {
+    stroke-width: 2;
+    stroke-opacity: 0.25;
+  }
+  45% {
+    stroke-width: 10;
+    stroke-opacity: 1;
+  }
+  100% {
+    stroke-width: 5;
+    stroke-opacity: 0.92;
   }
 }
 
