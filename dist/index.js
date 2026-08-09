@@ -661,6 +661,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
         this.view.y += event.clientY - lastY;
         lastX = event.clientX;
         lastY = event.clientY;
+        this.clampView();
         this.scheduleViewTransform();
         return;
       }
@@ -671,18 +672,56 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     });
     svg.addEventListener("wheel", (event) => {
       event.preventDefault();
-      const factor = event.deltaY > 0 ? 0.92 : 1.08;
+      event.stopPropagation();
+      const factor = Math.max(0.9, Math.min(1.1, Math.exp(-event.deltaY * 2e-3)));
       const rect = svg.getBoundingClientRect();
-      const anchorX = rect.width / 2;
-      const anchorY = rect.height / 2;
+      const pointerX = event.clientX - rect.left;
+      const pointerY = event.clientY - rect.top;
+      const centerBias = 0.72;
+      const anchorX = rect.width * 0.5 * centerBias + pointerX * (1 - centerBias);
+      const anchorY = rect.height * 0.5 * centerBias + pointerY * (1 - centerBias);
       const graphX = (anchorX - this.view.x) / this.view.scale;
       const graphY = (anchorY - this.view.y) / this.view.scale;
       const nextScale = Math.max(0.15, Math.min(4, this.view.scale * factor));
       this.view.scale = nextScale;
       this.view.x = anchorX - graphX * nextScale;
       this.view.y = anchorY - graphY * nextScale;
+      this.clampView();
       this.scheduleViewTransform();
     }, { passive: false });
+  }
+  clampView() {
+    const stage = this.root?.querySelector(".cg-stage");
+    const bounds = this.graphBounds(this.visibleNodes());
+    if (!stage || !bounds) return;
+    const width = stage.clientWidth || 900;
+    const height = stage.clientHeight || 620;
+    const margin = 110;
+    const scaledWidth = (bounds.maxX - bounds.minX) * this.view.scale;
+    const scaledHeight = (bounds.maxY - bounds.minY) * this.view.scale;
+    if (scaledWidth <= width - margin * 2) {
+      this.view.x = width / 2 - (bounds.minX + bounds.maxX) / 2 * this.view.scale;
+    } else {
+      const minX = margin - bounds.maxX * this.view.scale;
+      const maxX = width - margin - bounds.minX * this.view.scale;
+      this.view.x = clamp(this.view.x, minX, maxX);
+    }
+    if (scaledHeight <= height - margin * 2) {
+      this.view.y = height / 2 - (bounds.minY + bounds.maxY) / 2 * this.view.scale;
+    } else {
+      const minY = margin - bounds.maxY * this.view.scale;
+      const maxY = height - margin - bounds.minY * this.view.scale;
+      this.view.y = clamp(this.view.y, minY, maxY);
+    }
+  }
+  graphBounds(nodes) {
+    if (!nodes.length) return void 0;
+    const padding = 220;
+    const minX = Math.min(...nodes.map((node) => node.x - this.nodeRadius(node))) - padding;
+    const maxX = Math.max(...nodes.map((node) => node.x + this.nodeRadius(node))) + padding;
+    const minY = Math.min(...nodes.map((node) => node.y - this.nodeRadius(node))) - padding;
+    const maxY = Math.max(...nodes.map((node) => node.y + this.nodeRadius(node))) + padding;
+    return { minX, maxX, minY, maxY };
   }
   applyViewTransform() {
     this.cancelViewFrame();
@@ -899,6 +938,9 @@ function displayColorKey(key) {
 }
 function uniqueSorted(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 function hexToRgba(hex, alpha) {
   const normalized = hex.replace("#", "");
