@@ -101,6 +101,7 @@ export default class ClarityGraphPlugin extends Plugin {
   private graph: GraphData = { nodes: [], links: [] };
   private settings: Settings = loadSettings();
   private view = { x: 0, y: 0, scale: 1 };
+  private viewFrame?: number;
   private openTopBarElement?: HTMLElement;
 
   async onload() {
@@ -115,6 +116,7 @@ export default class ClarityGraphPlugin extends Plugin {
       },
       beforeDestroy() {
         plugin.hideTooltip();
+        plugin.cancelViewFrame();
         plugin.root = undefined;
       }
     });
@@ -607,6 +609,7 @@ export default class ClarityGraphPlugin extends Plugin {
 
   private draw() {
     if (!this.root) return;
+    this.cancelViewFrame();
     const svg = this.root.querySelector<SVGSVGElement>(".cg-svg");
     const empty = this.root.querySelector<HTMLElement>(".cg-empty");
     const tooltip = this.root.querySelector<HTMLElement>(".cg-tooltip");
@@ -790,7 +793,7 @@ export default class ClarityGraphPlugin extends Plugin {
         this.view.y += event.clientY - lastY;
         lastX = event.clientX;
         lastY = event.clientY;
-        this.applyViewTransform();
+        this.scheduleViewTransform();
         return;
       }
       this.updateHoverFromPointer(event);
@@ -810,13 +813,32 @@ export default class ClarityGraphPlugin extends Plugin {
       this.view.scale = nextScale;
       this.view.x = anchorX - graphX * nextScale;
       this.view.y = anchorY - graphY * nextScale;
-      this.applyViewTransform();
+      this.scheduleViewTransform();
     }, { passive: false });
   }
 
   private applyViewTransform() {
+    this.cancelViewFrame();
+    this.applyViewTransformNow();
+  }
+
+  private scheduleViewTransform() {
+    if (this.viewFrame !== undefined) return;
+    this.viewFrame = window.requestAnimationFrame(() => {
+      this.viewFrame = undefined;
+      this.applyViewTransformNow();
+    });
+  }
+
+  private applyViewTransformNow() {
     const viewport = this.root?.querySelector<SVGGElement>(".cg-viewport");
     viewport?.setAttribute("transform", `translate(${this.view.x} ${this.view.y}) scale(${this.view.scale})`);
+  }
+
+  private cancelViewFrame() {
+    if (this.viewFrame === undefined) return;
+    window.cancelAnimationFrame(this.viewFrame);
+    this.viewFrame = undefined;
   }
 
   private showTooltip(event: MouseEvent, node: GraphNode) {

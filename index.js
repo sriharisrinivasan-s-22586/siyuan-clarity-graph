@@ -28,6 +28,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     __publicField(this, "graph", { nodes: [], links: [] });
     __publicField(this, "settings", loadSettings());
     __publicField(this, "view", { x: 0, y: 0, scale: 1 });
+    __publicField(this, "viewFrame");
     __publicField(this, "openTopBarElement");
   }
   async onload() {
@@ -41,6 +42,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       },
       beforeDestroy() {
         plugin.hideTooltip();
+        plugin.cancelViewFrame();
         plugin.root = void 0;
       }
     });
@@ -485,6 +487,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
   }
   draw() {
     if (!this.root) return;
+    this.cancelViewFrame();
     const svg = this.root.querySelector(".cg-svg");
     const empty = this.root.querySelector(".cg-empty");
     const tooltip = this.root.querySelector(".cg-tooltip");
@@ -650,7 +653,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
         this.view.y += event.clientY - lastY;
         lastX = event.clientX;
         lastY = event.clientY;
-        this.applyViewTransform();
+        this.scheduleViewTransform();
         return;
       }
       this.updateHoverFromPointer(event);
@@ -670,12 +673,28 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       this.view.scale = nextScale;
       this.view.x = anchorX - graphX * nextScale;
       this.view.y = anchorY - graphY * nextScale;
-      this.applyViewTransform();
+      this.scheduleViewTransform();
     }, { passive: false });
   }
   applyViewTransform() {
+    this.cancelViewFrame();
+    this.applyViewTransformNow();
+  }
+  scheduleViewTransform() {
+    if (this.viewFrame !== void 0) return;
+    this.viewFrame = window.requestAnimationFrame(() => {
+      this.viewFrame = void 0;
+      this.applyViewTransformNow();
+    });
+  }
+  applyViewTransformNow() {
     const viewport = this.root?.querySelector(".cg-viewport");
     viewport?.setAttribute("transform", `translate(${this.view.x} ${this.view.y}) scale(${this.view.scale})`);
+  }
+  cancelViewFrame() {
+    if (this.viewFrame === void 0) return;
+    window.cancelAnimationFrame(this.viewFrame);
+    this.viewFrame = void 0;
   }
   showTooltip(event, node) {
     const tooltip = this.root?.querySelector(".cg-tooltip");

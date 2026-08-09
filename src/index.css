@@ -1,8 +1,9 @@
 .cg-root {
   height: 100%;
-  min-height: 560px;
+  min-height: 0;
+  overflow: hidden;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
   background: #18191d;
   color: #e7e9ee;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -60,6 +61,7 @@
 
 .cg-layout {
   min-height: 0;
+  overflow: hidden;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 310px;
 }
@@ -74,7 +76,9 @@
 
 .cg-controls {
   min-height: 0;
+  max-height: 100%;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 14px;
   background: #202126;
 }
@@ -198,7 +202,9 @@
 
 .cg-stage {
   position: relative;
+  min-height: 0;
   overflow: hidden;
+  contain: strict;
   background:
     radial-gradient(circle at center, rgba(59, 130, 246, 0.08), transparent 42%),
     #18191d;
@@ -209,6 +215,8 @@
   height: 100%;
   display: block;
   cursor: grab;
+  overscroll-behavior: none;
+  touch-action: none;
 }
 
 .cg-svg:active {
