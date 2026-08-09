@@ -43,6 +43,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       beforeDestroy() {
         plugin.hideTooltip();
         plugin.cancelViewFrame();
+        plugin.root?.classList.remove("cg-host");
         plugin.root = void 0;
       }
     });
@@ -74,6 +75,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
   }
   renderShell() {
     if (!this.root) return;
+    this.root.classList.add("cg-host");
     this.root.innerHTML = `
       <div class="cg-root">
         <header class="cg-header">

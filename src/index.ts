@@ -117,6 +117,7 @@ export default class ClarityGraphPlugin extends Plugin {
       beforeDestroy() {
         plugin.hideTooltip();
         plugin.cancelViewFrame();
+        plugin.root?.classList.remove("cg-host");
         plugin.root = undefined;
       }
     });
@@ -153,6 +154,7 @@ export default class ClarityGraphPlugin extends Plugin {
   private renderShell() {
     if (!this.root) return;
 
+    this.root.classList.add("cg-host");
     this.root.innerHTML = `
       <div class="cg-root">
         <header class="cg-header">
