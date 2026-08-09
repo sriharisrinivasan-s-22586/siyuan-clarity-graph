@@ -18,11 +18,36 @@ type Settings = {
   colors: Record<string, string>;
 };
 
+type FileTreeDoc = {
+  id: string;
+  title: string;
+  hpath: string;
+  box: string;
+  boxName: string;
+};
+
+type NotebookInfo = {
+  id: string;
+  name: string;
+  closed?: boolean;
+};
+
+type FileTreeEntry = {
+  id?: string;
+  name?: string;
+  title?: string;
+  path?: string;
+  hPath?: string;
+  files?: FileTreeEntry[];
+  subFileCount?: number;
+};
+
 type GraphNode = {
   id: string;
   title: string;
   hpath: string;
   box: string;
+  boxName: string;
   tag: string;
   updated: string;
   pathGroup: string;
@@ -264,35 +289,50 @@ export default class ClarityGraphPlugin extends Plugin {
   }
 
   private async loadGraph(): Promise<GraphData> {
-    const docs = await this.sql(`
+    const sqlDocs = await this.sql(`
       SELECT id, content, hpath, box, tag, updated
       FROM blocks
       WHERE type = 'd'
       ORDER BY hpath ASC
     `);
-    const docIds = new Set(docs.map((row) => String(row.id)));
-    const nodes = docs.map((row, index) => ({
+    const sqlById = new Map(sqlDocs.map((row) => [String(row.id), row]));
+    const treeDocs = await this.loadFileTreeDocs();
+    const sourceDocs = treeDocs.length ? treeDocs : sqlDocs.map((row) => ({
       id: String(row.id),
       title: String(row.content || lastPathSegment(String(row.hpath || "")) || "Untitled"),
       hpath: String(row.hpath || ""),
       box: String(row.box || ""),
-      tag: String(row.tag || ""),
-      updated: String(row.updated || ""),
-      pathGroup: firstPathSegment(String(row.hpath || "")),
-      isTopLevel: pathDepth(String(row.hpath || "")) <= 1,
-      hasSubLinks: false,
-      component: "",
-      groupKey: "",
-      color: DEFAULT_COLORS[index % DEFAULT_COLORS.length],
-      inbound: 0,
-      outbound: 0,
-      hierarchyCount: 0,
-      degree: 0,
-      x: seededRange(`${row.id}:x`, -260, 260),
-      y: seededRange(`${row.id}:y`, -210, 210),
-      vx: 0,
-      vy: 0
+      boxName: String(row.box || "Notebook")
     }));
+
+    const nodes = sourceDocs.map((doc, index) => {
+      const sql = sqlById.get(doc.id);
+      const hpath = String(sql?.hpath || doc.hpath || `/${doc.title}`);
+      return {
+        id: doc.id,
+        title: String(sql?.content || doc.title || lastPathSegment(hpath) || "Untitled"),
+        hpath,
+        box: String(sql?.box || doc.box || ""),
+        boxName: doc.boxName || String(sql?.box || "Notebook"),
+        tag: String(sql?.tag || ""),
+        updated: String(sql?.updated || ""),
+        pathGroup: firstPathSegment(hpath),
+        isTopLevel: pathDepth(hpath) <= 1,
+        hasSubLinks: false,
+        component: "",
+        groupKey: "",
+        color: DEFAULT_COLORS[index % DEFAULT_COLORS.length],
+        inbound: 0,
+        outbound: 0,
+        hierarchyCount: 0,
+        degree: 0,
+        x: seededRange(`${doc.id}:x`, -260, 260),
+        y: seededRange(`${doc.id}:y`, -210, 210),
+        vx: 0,
+        vy: 0
+      };
+    });
+    const docIds = new Set(nodes.map((node) => node.id));
 
     const refs = await this.sql(`
       SELECT root_id, def_block_root_id
@@ -308,10 +348,10 @@ export default class ClarityGraphPlugin extends Plugin {
       counts.set(`${source}->${target}`, (counts.get(`${source}->${target}`) ?? 0) + 1);
     }
 
-    const topLevelByPathGroup = new Map(nodes.filter((node) => node.isTopLevel).map((node) => [node.pathGroup, node]));
+    const topLevelByPathGroup = new Map(nodes.filter((node) => node.isTopLevel).map((node) => [`${node.box}:${node.pathGroup}`, node]));
     for (const node of nodes) {
       if (node.isTopLevel || pathDepth(node.hpath) < 2) continue;
-      const parent = topLevelByPathGroup.get(node.pathGroup);
+      const parent = topLevelByPathGroup.get(`${node.box}:${node.pathGroup}`);
       if (!parent || parent.id === node.id) continue;
       counts.set(`${parent.id}->${node.id}`, Math.max(counts.get(`${parent.id}->${node.id}`) ?? 0, 1));
       parent.hierarchyCount += 1;
@@ -365,6 +405,50 @@ export default class ClarityGraphPlugin extends Plugin {
     return await this.kernelPost("/api/query/sql", { stmt }) ?? [];
   }
 
+  private async loadFileTreeDocs(): Promise<FileTreeDoc[]> {
+    const data = await this.kernelPost("/api/notebook/lsNotebooks", {});
+    const notebooks = ((data?.notebooks ?? []) as NotebookInfo[]).filter((notebook) => !notebook.closed);
+    const docs: FileTreeDoc[] = [];
+
+    for (const notebook of notebooks) {
+      docs.push(...await this.collectNotebookDocs(notebook, "/", []));
+    }
+
+    return docs;
+  }
+
+  private async collectNotebookDocs(notebook: NotebookInfo, path: string, ancestors: string[]): Promise<FileTreeDoc[]> {
+    const data = await this.kernelPost("/api/filetree/listDocsByPath", { notebook: notebook.id, path });
+    const files = ((data?.files ?? []) as FileTreeEntry[]);
+    const docs: FileTreeDoc[] = [];
+
+    for (const file of files) {
+      if (!file.id) continue;
+      const title = cleanDocTitle(String(file.title || file.name || "Untitled"));
+      const hpath = String(file.hPath || `/${[...ancestors, title].join("/")}`);
+      const filePath = String(file.path || joinDocPath(path, file.id));
+      docs.push({
+        id: file.id,
+        title,
+        hpath,
+        box: notebook.id,
+        boxName: notebook.name
+      });
+
+      if (Array.isArray(file.files) && file.files.length) {
+        docs.push(...flattenInlineDocs(file.files, notebook, [...ancestors, title]));
+      } else if ((file.subFileCount ?? 0) > 0 || filePath !== path) {
+        try {
+          docs.push(...await this.collectNotebookDocs(notebook, filePath, [...ancestors, title]));
+        } catch (error) {
+          console.warn("Clarity Graph could not read child docs", filePath, error);
+        }
+      }
+    }
+
+    return docs;
+  }
+
   private applyGroupsAndColors() {
     const seen = new Map<string, number>();
     for (const node of this.graph.nodes) {
@@ -413,22 +497,35 @@ export default class ClarityGraphPlugin extends Plugin {
     if (!groups) return;
     if (stats) stats.innerHTML = "";
 
-    const groupCounts = new Map<string, number>();
-    for (const node of this.graph.nodes) groupCounts.set(node.groupKey, (groupCounts.get(node.groupKey) ?? 0) + 1);
-    groups.innerHTML = [...groupCounts]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 24)
-      .map(([key]) => {
-        const value = this.settings.colors[key] ?? colorFor(key, [...groupCounts.keys()]);
-        return `
+    const groupKeys = uniqueSorted(this.graph.nodes.map((node) => node.groupKey)).slice(0, 24);
+    const notebookKeys = uniqueSorted(this.graph.nodes.map((node) => notebookColorKey(node)));
+    groups.innerHTML = `
+      <div class="cg-color-section">
+        <strong>Notebook areas</strong>
+        ${this.renderColorRows(notebookKeys, true)}
+      </div>
+      <div class="cg-color-section">
+        <strong>Node groups</strong>
+        ${this.renderColorRows(groupKeys, false)}
+      </div>
+    `;
+    this.bindColorRows(groups);
+  }
+
+  private renderColorRows(keys: string[], useLightFallback: boolean) {
+    return keys.map((key) => {
+      const value = this.settings.colors[key] ?? colorFor(key, keys, useLightFallback);
+      return `
         <label class="cg-color-row" title="${escapeAttr(key)}">
           <button class="cg-color-swatch" type="button" data-group="${escapeAttr(key)}" style="--group-color: ${value}" aria-label="Choose color for ${escapeAttr(key)}"></button>
-          <span>${escapeHtml(key)}</span>
+          <span>${escapeHtml(displayColorKey(key))}</span>
           <input type="color" data-group="${escapeAttr(key)}" value="${value}" />
         </label>
       `;
-      })
-      .join("");
+    }).join("");
+  }
+
+  private bindColorRows(groups: HTMLElement) {
     groups.querySelectorAll<HTMLButtonElement>(".cg-color-swatch").forEach((button) => {
       button.addEventListener("click", () => {
         const group = button.dataset.group;
@@ -530,6 +627,7 @@ export default class ClarityGraphPlugin extends Plugin {
     const viewport = document.createElementNS("http://www.w3.org/2000/svg", "g");
     viewport.setAttribute("transform", `translate(${this.view.x} ${this.view.y}) scale(${this.view.scale})`);
     svg.appendChild(viewport);
+    this.drawNotebookAreas(viewport, nodes);
 
     for (const link of links) {
       const source = byId.get(link.source);
@@ -630,6 +728,38 @@ export default class ClarityGraphPlugin extends Plugin {
       y: stage.clientHeight / 2 - node.y * 1.25
     };
     this.draw();
+  }
+
+  private drawNotebookAreas(viewport: SVGGElement, nodes: GraphNode[]) {
+    const byNotebook = new Map<string, GraphNode[]>();
+    for (const node of nodes) {
+      const key = notebookColorKey(node);
+      byNotebook.set(key, [...(byNotebook.get(key) ?? []), node]);
+    }
+
+    for (const [key, notebookNodes] of byNotebook) {
+      if (!notebookNodes.length) continue;
+      const xs = notebookNodes.map((node) => node.x);
+      const ys = notebookNodes.map((node) => node.y);
+      const minX = Math.min(...xs) - 90;
+      const maxX = Math.max(...xs) + 90;
+      const minY = Math.min(...ys) - 70;
+      const maxY = Math.max(...ys) + 70;
+      const color = this.settings.colors[key] ?? colorFor(key, [...byNotebook.keys()], true);
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class", "cg-notebook-area");
+      path.setAttribute("d", notebookAreaPath(key, minX, minY, maxX, maxY));
+      path.setAttribute("fill", hexToRgba(color, 0.08));
+      path.setAttribute("stroke", hexToRgba(color, 0.36));
+      viewport.appendChild(path);
+
+      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      label.setAttribute("class", "cg-notebook-label");
+      label.setAttribute("x", String(minX + 18));
+      label.setAttribute("y", String(minY + 24));
+      label.textContent = displayColorKey(key);
+      viewport.appendChild(label);
+    }
   }
 
   private nodeRadius(node: GraphNode) {
@@ -829,6 +959,34 @@ function firstPathSegment(hpath: string) {
   return hpath.split("/").filter(Boolean)[0] || "Root";
 }
 
+function flattenInlineDocs(files: FileTreeEntry[], notebook: NotebookInfo, ancestors: string[]): FileTreeDoc[] {
+  const docs: FileTreeDoc[] = [];
+  for (const file of files) {
+    if (!file.id) continue;
+    const title = cleanDocTitle(String(file.title || file.name || "Untitled"));
+    docs.push({
+      id: file.id,
+      title,
+      hpath: String(file.hPath || `/${[...ancestors, title].join("/")}`),
+      box: notebook.id,
+      boxName: notebook.name
+    });
+    if (Array.isArray(file.files) && file.files.length) {
+      docs.push(...flattenInlineDocs(file.files, notebook, [...ancestors, title]));
+    }
+  }
+  return docs;
+}
+
+function cleanDocTitle(value: string) {
+  return value.replace(/\.sy$/i, "") || "Untitled";
+}
+
+function joinDocPath(parent: string, id: string) {
+  const normalizedParent = parent === "/" ? "" : parent.replace(/\/$/, "");
+  return `${normalizedParent}/${id}.sy`;
+}
+
 function pathDepth(hpath: string) {
   return hpath.split("/").filter(Boolean).length;
 }
@@ -865,9 +1023,55 @@ function formatDate(value: string) {
   return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
 }
 
-function colorFor(key: string, keys: string[]) {
+function colorFor(key: string, keys: string[], light = false) {
   const index = Math.max(keys.indexOf(key), 0);
-  return DEFAULT_COLORS[index % DEFAULT_COLORS.length];
+  const color = DEFAULT_COLORS[index % DEFAULT_COLORS.length];
+  return light ? lightenHex(color, 0.28) : color;
+}
+
+function notebookColorKey(node: GraphNode) {
+  return `notebook:${node.boxName || node.box || "Notebook"}`;
+}
+
+function displayColorKey(key: string) {
+  return key.startsWith("notebook:") ? key.slice("notebook:".length) : key;
+}
+
+function uniqueSorted(values: string[]) {
+  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+function notebookAreaPath(seed: string, minX: number, minY: number, maxX: number, maxY: number) {
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const rx = Math.max((maxX - minX) / 2, 90);
+  const ry = Math.max((maxY - minY) / 2, 70);
+  const points = Array.from({ length: 12 }, (_, index) => {
+    const angle = (index / 12) * Math.PI * 2;
+    const wobble = seededRange(`${seed}:area:${index}`, 0.9, 1.12);
+    return {
+      x: cx + Math.cos(angle) * rx * wobble,
+      y: cy + Math.sin(angle) * ry * wobble
+    };
+  });
+  return `${points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ")} Z`;
+}
+
+function hexToRgba(hex: string, alpha: number) {
+  const normalized = hex.replace("#", "");
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return `rgba(148, 163, 184, ${alpha})`;
+  const [r, g, b] = [0, 2, 4].map((offset) => Number.parseInt(normalized.slice(offset, offset + 2), 16));
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function lightenHex(hex: string, amount: number) {
+  const normalized = hex.replace("#", "");
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return hex;
+  const channels = [0, 2, 4].map((offset) => {
+    const value = Number.parseInt(normalized.slice(offset, offset + 2), 16);
+    return Math.min(255, Math.round(value + (255 - value) * amount)).toString(16).padStart(2, "0");
+  });
+  return `#${channels.join("")}`;
 }
 
 function darkenHex(hex: string, amount: number) {

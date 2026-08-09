@@ -92,10 +92,20 @@
 
 .cg-groups {
   display: grid;
-  gap: 7px;
+  gap: 14px;
   max-height: 260px;
   overflow: auto;
   padding-right: 4px;
+}
+
+.cg-color-section {
+  display: grid;
+  gap: 7px;
+}
+
+.cg-color-section strong {
+  color: #aeb4c1;
+  font-size: 12px;
 }
 
 .cg-color-row {
@@ -207,6 +217,22 @@
 
 .cg-link {
   stroke: #7a8495;
+}
+
+.cg-notebook-area {
+  pointer-events: none;
+  stroke-width: 1.6;
+  stroke-dasharray: 10 8;
+}
+
+.cg-notebook-label {
+  pointer-events: none;
+  fill: rgba(230, 236, 246, 0.46);
+  font-size: 16px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: rgba(18, 20, 26, 0.86);
+  stroke-width: 4px;
 }
 
 #cg-arrow path {
