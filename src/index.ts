@@ -502,6 +502,7 @@ export default class ClarityGraphPlugin extends Plugin {
     const visible = new Set(nodes.map((node) => node.id));
     const links = this.graph.links.filter((link) => visible.has(link.source) && visible.has(link.target));
     const byId = new Map(this.graph.nodes.map((node) => [node.id, node]));
+    const hubDegree = Math.max(3, Math.max(...nodes.map((node) => node.degree), 0));
 
     svg.innerHTML = "";
     empty.style.display = nodes.length ? "none" : "grid";
@@ -550,11 +551,11 @@ export default class ClarityGraphPlugin extends Plugin {
       nodeGroup.appendChild(target);
 
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      circle.setAttribute("class", `cg-node${node.degree === 0 ? " is-orphan" : ""}${node.isTopLevel ? " is-primary" : ""}`);
+      circle.setAttribute("class", `cg-node${node.degree === 0 ? " is-orphan" : ""}${node.isTopLevel ? " is-primary" : ""}${node.degree >= hubDegree ? " is-hub" : ""}`);
       circle.setAttribute("cx", String(node.x));
       circle.setAttribute("cy", String(node.y));
       circle.setAttribute("r", String(radius));
-      circle.setAttribute("fill", node.color);
+      circle.setAttribute("fill", node.degree >= hubDegree ? darkenHex(node.color, 0.24) : node.color);
       nodeGroup.appendChild(circle);
       viewport.appendChild(nodeGroup);
 
@@ -851,6 +852,16 @@ function formatDate(value: string) {
 function colorFor(key: string, keys: string[]) {
   const index = Math.max(keys.indexOf(key), 0);
   return DEFAULT_COLORS[index % DEFAULT_COLORS.length];
+}
+
+function darkenHex(hex: string, amount: number) {
+  const normalized = hex.replace("#", "");
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return hex;
+  const channels = [0, 2, 4].map((offset) => {
+    const value = Number.parseInt(normalized.slice(offset, offset + 2), 16);
+    return Math.max(0, Math.round(value * (1 - amount))).toString(16).padStart(2, "0");
+  });
+  return `#${channels.join("")}`;
 }
 
 function escapeHtml(value: string) {

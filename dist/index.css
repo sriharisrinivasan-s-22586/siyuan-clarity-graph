@@ -236,13 +236,36 @@
   filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.22)) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.42));
 }
 
+.cg-node.is-hub {
+  stroke: #fff7d6;
+  stroke-width: 4;
+  animation: cg-hub-pulse 1.4s ease-out 0s 3;
+  filter: drop-shadow(0 0 18px rgba(255, 210, 90, 0.42)) drop-shadow(0 5px 14px rgba(0, 0, 0, 0.5));
+}
+
 .cg-node-group:hover .cg-node {
   stroke: #fff;
   stroke-width: 2.6;
 }
 
+.cg-node-group:hover .cg-node.is-hub,
 .cg-node-group:hover .cg-node.is-primary {
   stroke-width: 3.6;
+}
+
+@keyframes cg-hub-pulse {
+  0% {
+    stroke-width: 4;
+    filter: drop-shadow(0 0 4px rgba(255, 210, 90, 0.2)) drop-shadow(0 5px 14px rgba(0, 0, 0, 0.5));
+  }
+  45% {
+    stroke-width: 7;
+    filter: drop-shadow(0 0 26px rgba(255, 210, 90, 0.75)) drop-shadow(0 5px 14px rgba(0, 0, 0, 0.5));
+  }
+  100% {
+    stroke-width: 4;
+    filter: drop-shadow(0 0 18px rgba(255, 210, 90, 0.42)) drop-shadow(0 5px 14px rgba(0, 0, 0, 0.5));
+  }
 }
 
 .cg-label {
