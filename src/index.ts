@@ -625,6 +625,7 @@ export default class ClarityGraphPlugin extends Plugin {
     svg.appendChild(defs);
 
     const viewport = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    viewport.setAttribute("class", "cg-viewport");
     viewport.setAttribute("transform", `translate(${this.view.x} ${this.view.y}) scale(${this.view.scale})`);
     svg.appendChild(viewport);
     this.drawNotebookAreas(viewport, nodes);
@@ -715,7 +716,7 @@ export default class ClarityGraphPlugin extends Plugin {
       x: width / 2 - ((minX + maxX) / 2) * scale,
       y: height / 2 - ((minY + maxY) / 2) * scale
     };
-    this.draw();
+    this.applyViewTransform();
   }
 
   private focusNode(id: string) {
@@ -727,7 +728,7 @@ export default class ClarityGraphPlugin extends Plugin {
       x: stage.clientWidth / 2 - node.x * 1.25,
       y: stage.clientHeight / 2 - node.y * 1.25
     };
-    this.draw();
+    this.applyViewTransform();
   }
 
   private drawNotebookAreas(viewport: SVGGElement, nodes: GraphNode[]) {
@@ -786,7 +787,7 @@ export default class ClarityGraphPlugin extends Plugin {
         this.view.y += event.clientY - lastY;
         lastX = event.clientX;
         lastY = event.clientY;
-        this.draw();
+        this.applyViewTransform();
         return;
       }
       this.updateHoverFromPointer(event);
@@ -806,8 +807,13 @@ export default class ClarityGraphPlugin extends Plugin {
       this.view.scale = nextScale;
       this.view.x = anchorX - graphX * nextScale;
       this.view.y = anchorY - graphY * nextScale;
-      this.draw();
+      this.applyViewTransform();
     }, { passive: false });
+  }
+
+  private applyViewTransform() {
+    const viewport = this.root?.querySelector<SVGGElement>(".cg-viewport");
+    viewport?.setAttribute("transform", `translate(${this.view.x} ${this.view.y}) scale(${this.view.scale})`);
   }
 
   private showTooltip(event: MouseEvent, node: GraphNode) {

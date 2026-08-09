@@ -500,6 +500,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     defs.innerHTML = `<marker id="cg-arrow" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="6" markerHeight="6" orient="auto" markerUnits="strokeWidth"><path d="M 1 1 L 11 6 L 1 11 z"></path></marker>`;
     svg.appendChild(defs);
     const viewport = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    viewport.setAttribute("class", "cg-viewport");
     viewport.setAttribute("transform", `translate(${this.view.x} ${this.view.y}) scale(${this.view.scale})`);
     svg.appendChild(viewport);
     this.drawNotebookAreas(viewport, nodes);
@@ -582,7 +583,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       x: width / 2 - (minX + maxX) / 2 * scale,
       y: height / 2 - (minY + maxY) / 2 * scale
     };
-    this.draw();
+    this.applyViewTransform();
   }
   focusNode(id) {
     const node = this.graph.nodes.find((item) => item.id === id);
@@ -593,7 +594,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       x: stage.clientWidth / 2 - node.x * 1.25,
       y: stage.clientHeight / 2 - node.y * 1.25
     };
-    this.draw();
+    this.applyViewTransform();
   }
   drawNotebookAreas(viewport, nodes) {
     const byNotebook = /* @__PURE__ */ new Map();
@@ -646,7 +647,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
         this.view.y += event.clientY - lastY;
         lastX = event.clientX;
         lastY = event.clientY;
-        this.draw();
+        this.applyViewTransform();
         return;
       }
       this.updateHoverFromPointer(event);
@@ -666,8 +667,12 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       this.view.scale = nextScale;
       this.view.x = anchorX - graphX * nextScale;
       this.view.y = anchorY - graphY * nextScale;
-      this.draw();
+      this.applyViewTransform();
     }, { passive: false });
+  }
+  applyViewTransform() {
+    const viewport = this.root?.querySelector(".cg-viewport");
+    viewport?.setAttribute("transform", `translate(${this.view.x} ${this.view.y}) scale(${this.view.scale})`);
   }
   showTooltip(event, node) {
     const tooltip = this.root?.querySelector(".cg-tooltip");
