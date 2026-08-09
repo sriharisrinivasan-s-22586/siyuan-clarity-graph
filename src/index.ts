@@ -26,6 +26,7 @@ type GraphNode = {
   tag: string;
   updated: string;
   pathGroup: string;
+  isTopLevel: boolean;
   component: string;
   groupKey: string;
   color: string;
@@ -273,6 +274,7 @@ export default class ClarityGraphPlugin extends Plugin {
       tag: String(row.tag || ""),
       updated: String(row.updated || ""),
       pathGroup: firstPathSegment(String(row.hpath || "")),
+      isTopLevel: pathDepth(String(row.hpath || "")) <= 1,
       component: "",
       groupKey: "",
       color: DEFAULT_COLORS[index % DEFAULT_COLORS.length],
@@ -532,7 +534,7 @@ export default class ClarityGraphPlugin extends Plugin {
       nodeGroup.appendChild(target);
 
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      circle.setAttribute("class", `cg-node${node.degree === 0 ? " is-orphan" : ""}`);
+      circle.setAttribute("class", `cg-node${node.degree === 0 ? " is-orphan" : ""}${node.isTopLevel ? " is-primary" : ""}`);
       circle.setAttribute("cx", String(node.x));
       circle.setAttribute("cy", String(node.y));
       circle.setAttribute("r", String(radius));
@@ -599,7 +601,8 @@ export default class ClarityGraphPlugin extends Plugin {
   }
 
   private nodeRadius(node: GraphNode) {
-    return (5.2 + Math.sqrt(node.degree + 1) * 2.1) * this.settings.nodeSize;
+    const baseRadius = (5.2 + Math.sqrt(node.degree + 1) * 2.1) * this.settings.nodeSize;
+    return node.isTopLevel ? baseRadius * 1.18 : baseRadius;
   }
 
   private attachPanZoom(svg: SVGSVGElement) {
@@ -791,6 +794,10 @@ function firstTag(tag: string) {
 
 function firstPathSegment(hpath: string) {
   return hpath.split("/").filter(Boolean)[0] || "Root";
+}
+
+function pathDepth(hpath: string) {
+  return hpath.split("/").filter(Boolean).length;
 }
 
 function lastPathSegment(hpath: string) {

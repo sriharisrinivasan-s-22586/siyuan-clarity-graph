@@ -230,9 +230,19 @@
   filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.38));
 }
 
+.cg-node.is-primary {
+  stroke: #ffffff;
+  stroke-width: 3;
+  filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.22)) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.42));
+}
+
 .cg-node-group:hover .cg-node {
   stroke: #fff;
   stroke-width: 2.6;
+}
+
+.cg-node-group:hover .cg-node.is-primary {
+  stroke-width: 3.6;
 }
 
 .cg-label {

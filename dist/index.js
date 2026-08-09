@@ -214,6 +214,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       tag: String(row.tag || ""),
       updated: String(row.updated || ""),
       pathGroup: firstPathSegment(String(row.hpath || "")),
+      isTopLevel: pathDepth(String(row.hpath || "")) <= 1,
       component: "",
       groupKey: "",
       color: DEFAULT_COLORS[index % DEFAULT_COLORS.length],
@@ -439,7 +440,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       target.setAttribute("r", String(targetRadius));
       nodeGroup.appendChild(target);
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      circle.setAttribute("class", `cg-node${node.degree === 0 ? " is-orphan" : ""}`);
+      circle.setAttribute("class", `cg-node${node.degree === 0 ? " is-orphan" : ""}${node.isTopLevel ? " is-primary" : ""}`);
       circle.setAttribute("cx", String(node.x));
       circle.setAttribute("cy", String(node.y));
       circle.setAttribute("r", String(radius));
@@ -500,7 +501,8 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     this.draw();
   }
   nodeRadius(node) {
-    return (5.2 + Math.sqrt(node.degree + 1) * 2.1) * this.settings.nodeSize;
+    const baseRadius = (5.2 + Math.sqrt(node.degree + 1) * 2.1) * this.settings.nodeSize;
+    return node.isTopLevel ? baseRadius * 1.18 : baseRadius;
   }
   attachPanZoom(svg) {
     if (svg.dataset.bound === "true") return;
@@ -670,6 +672,9 @@ function firstTag(tag) {
 }
 function firstPathSegment(hpath) {
   return hpath.split("/").filter(Boolean)[0] || "Root";
+}
+function pathDepth(hpath) {
+  return hpath.split("/").filter(Boolean).length;
 }
 function lastPathSegment(hpath) {
   const parts = hpath.split("/").filter(Boolean);
