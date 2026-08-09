@@ -33,6 +33,7 @@ type GraphNode = {
   color: string;
   inbound: number;
   outbound: number;
+  hierarchyCount: number;
   degree: number;
   x: number;
   y: number;
@@ -285,6 +286,7 @@ export default class ClarityGraphPlugin extends Plugin {
       color: DEFAULT_COLORS[index % DEFAULT_COLORS.length],
       inbound: 0,
       outbound: 0,
+      hierarchyCount: 0,
       degree: 0,
       x: seededRange(`${row.id}:x`, -260, 260),
       y: seededRange(`${row.id}:y`, -210, 210),
@@ -308,10 +310,11 @@ export default class ClarityGraphPlugin extends Plugin {
 
     const topLevelByPathGroup = new Map(nodes.filter((node) => node.isTopLevel).map((node) => [node.pathGroup, node]));
     for (const node of nodes) {
-      if (node.isTopLevel || pathDepth(node.hpath) !== 2) continue;
+      if (node.isTopLevel || pathDepth(node.hpath) < 2) continue;
       const parent = topLevelByPathGroup.get(node.pathGroup);
       if (!parent || parent.id === node.id) continue;
       counts.set(`${parent.id}->${node.id}`, Math.max(counts.get(`${parent.id}->${node.id}`) ?? 0, 1));
+      parent.hierarchyCount += 1;
     }
 
     const links = Array.from(counts, ([key, count]) => {
@@ -686,6 +689,7 @@ export default class ClarityGraphPlugin extends Plugin {
       <strong>${escapeHtml(node.title)}</strong>
       <span>${escapeHtml(node.hpath || "No path")}</span>
       <span>${node.inbound} incoming · ${node.outbound} outgoing links · ${node.degree} total</span>
+      ${node.hierarchyCount ? `<span>${node.hierarchyCount} child note${node.hierarchyCount === 1 ? "" : "s"} in this section</span>` : ""}
       <span>${escapeHtml(node.groupKey)}</span>
       ${node.tag ? `<span>${escapeHtml(node.tag)}</span>` : ""}
       ${node.updated ? `<span>Updated ${formatDate(node.updated)}</span>` : ""}
