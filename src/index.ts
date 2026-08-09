@@ -27,6 +27,7 @@ type GraphNode = {
   updated: string;
   pathGroup: string;
   isTopLevel: boolean;
+  hasSubLinks: boolean;
   component: string;
   groupKey: string;
   color: string;
@@ -278,6 +279,7 @@ export default class ClarityGraphPlugin extends Plugin {
       updated: String(row.updated || ""),
       pathGroup: firstPathSegment(String(row.hpath || "")),
       isTopLevel: pathDepth(String(row.hpath || "")) <= 1,
+      hasSubLinks: false,
       component: "",
       groupKey: "",
       color: DEFAULT_COLORS[index % DEFAULT_COLORS.length],
@@ -315,6 +317,10 @@ export default class ClarityGraphPlugin extends Plugin {
       const target = byId.get(link.target);
       if (source) source.outbound += link.count;
       if (target) target.inbound += link.count;
+      if (source && target) {
+        if (source.isTopLevel && !target.isTopLevel && target.pathGroup === source.pathGroup) source.hasSubLinks = true;
+        if (target.isTopLevel && !source.isTopLevel && source.pathGroup === target.pathGroup) target.hasSubLinks = true;
+      }
     }
     for (const node of nodes) {
       node.degree = node.inbound + node.outbound;
@@ -502,8 +508,6 @@ export default class ClarityGraphPlugin extends Plugin {
     const visible = new Set(nodes.map((node) => node.id));
     const links = this.graph.links.filter((link) => visible.has(link.source) && visible.has(link.target));
     const byId = new Map(this.graph.nodes.map((node) => [node.id, node]));
-    const hubDegree = Math.max(3, Math.max(...nodes.map((node) => node.degree), 0));
-
     svg.innerHTML = "";
     empty.style.display = nodes.length ? "none" : "grid";
     empty.textContent = "No notes match this graph filter.";
@@ -551,11 +555,11 @@ export default class ClarityGraphPlugin extends Plugin {
       nodeGroup.appendChild(target);
 
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      circle.setAttribute("class", `cg-node${node.degree === 0 ? " is-orphan" : ""}${node.isTopLevel ? " is-primary" : ""}${node.degree >= hubDegree ? " is-hub" : ""}`);
+      circle.setAttribute("class", `cg-node${node.degree === 0 ? " is-orphan" : ""}${node.isTopLevel ? " is-primary" : ""}${node.hasSubLinks ? " is-hub" : ""}`);
       circle.setAttribute("cx", String(node.x));
       circle.setAttribute("cy", String(node.y));
       circle.setAttribute("r", String(radius));
-      circle.setAttribute("fill", node.degree >= hubDegree ? darkenHex(node.color, 0.24) : node.color);
+      circle.setAttribute("fill", node.hasSubLinks ? darkenHex(node.color, 0.24) : node.color);
       nodeGroup.appendChild(circle);
       viewport.appendChild(nodeGroup);
 
