@@ -81,6 +81,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
           </div>
           <input class="cg-search" type="search" placeholder="Search notes, paths, tags" />
           <button class="cg-icon cg-fit" type="button" title="Fit graph">Fit</button>
+          <button class="cg-icon cg-toggle-controls" type="button" title="Show or hide controls">Controls</button>
           <button class="cg-icon cg-refresh" type="button" title="Refresh graph">Refresh</button>
         </header>
         <main class="cg-layout">
@@ -122,6 +123,10 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     if (!this.root) return;
     this.root.querySelector(".cg-refresh")?.addEventListener("click", () => void this.refresh());
     this.root.querySelector(".cg-fit")?.addEventListener("click", () => this.fitView(this.visibleNodes()));
+    this.root.querySelector(".cg-toggle-controls")?.addEventListener("click", () => {
+      this.root?.querySelector(".cg-layout")?.classList.toggle("is-controls-hidden");
+      window.setTimeout(() => this.fitView(this.visibleNodes()), 0);
+    });
     this.root.querySelector(".cg-search")?.addEventListener("input", () => this.draw());
     this.root.querySelector(".cg-stage")?.addEventListener("pointerleave", () => this.hideTooltip());
     this.root.querySelector(".cg-stage")?.addEventListener("wheel", () => this.hideTooltip(), { passive: true });
@@ -302,13 +307,23 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     if (stats) stats.innerHTML = "";
     const groupCounts = /* @__PURE__ */ new Map();
     for (const node of this.graph.nodes) groupCounts.set(node.groupKey, (groupCounts.get(node.groupKey) ?? 0) + 1);
-    groups.innerHTML = [...groupCounts].sort((a, b) => b[1] - a[1]).slice(0, 24).map(([key, count]) => `
-        <label class="cg-color-row">
-          <input type="color" data-group="${escapeAttr(key)}" value="${this.settings.colors[key] ?? colorFor(key, [...groupCounts.keys()])}" />
+    groups.innerHTML = [...groupCounts].sort((a, b) => b[1] - a[1]).slice(0, 24).map(([key]) => {
+      const value = this.settings.colors[key] ?? colorFor(key, [...groupCounts.keys()]);
+      return `
+        <label class="cg-color-row" title="${escapeAttr(key)}">
+          <button class="cg-color-swatch" type="button" data-group="${escapeAttr(key)}" style="--group-color: ${value}" aria-label="Choose color for ${escapeAttr(key)}"></button>
           <span>${escapeHtml(key)}</span>
-          <small>${count}</small>
+          <input type="color" data-group="${escapeAttr(key)}" value="${value}" />
         </label>
-      `).join("");
+      `;
+    }).join("");
+    groups.querySelectorAll(".cg-color-swatch").forEach((button) => {
+      button.addEventListener("click", () => {
+        const group = button.dataset.group;
+        if (!group) return;
+        groups.querySelector(`input[type='color'][data-group="${cssEscape(group)}"]`)?.click();
+      });
+    });
     groups.querySelectorAll("input[type='color']").forEach((input) => {
       input.addEventListener("input", () => {
         const group = input.dataset.group;
@@ -698,6 +713,9 @@ function escapeHtml(value) {
 }
 function escapeAttr(value) {
   return escapeHtml(value).replace(/`/g, "&#096;");
+}
+function cssEscape(value) {
+  return CSS.escape ? CSS.escape(value) : value.replace(/["\\]/g, "\\$&");
 }
 function loadSettings() {
   try {

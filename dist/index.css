@@ -10,7 +10,7 @@
 
 .cg-header {
   display: grid;
-  grid-template-columns: minmax(220px, auto) 1fr auto auto;
+  grid-template-columns: minmax(220px, auto) 1fr auto auto auto;
   gap: 10px;
   align-items: center;
   padding: 12px 14px;
@@ -64,6 +64,14 @@
   grid-template-columns: minmax(0, 1fr) 310px;
 }
 
+.cg-layout.is-controls-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.cg-layout.is-controls-hidden .cg-controls {
+  display: none;
+}
+
 .cg-controls {
   min-height: 0;
   overflow: auto;
@@ -92,7 +100,7 @@
 
 .cg-color-row {
   display: grid;
-  grid-template-columns: 28px 1fr auto;
+  grid-template-columns: 28px 1fr;
   gap: 8px;
   align-items: center;
   min-height: 30px;
@@ -100,13 +108,26 @@
   font-size: 12px;
 }
 
-.cg-color-row input {
+.cg-color-swatch {
   width: 24px;
   height: 24px;
   padding: 0;
-  border: 0;
+  border: 1px solid rgba(255, 255, 255, 0.34);
   border-radius: 5px;
-  background: transparent;
+  background: var(--group-color);
+  cursor: pointer;
+}
+
+.cg-color-swatch:hover {
+  border-color: #fff;
+}
+
+.cg-color-row input[type="color"] {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .cg-color-row span {
@@ -217,7 +238,7 @@
 .cg-label {
   pointer-events: none;
   fill: #f6f7fb;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 650;
   paint-order: stroke;
   stroke: rgba(13, 14, 18, 0.96);
