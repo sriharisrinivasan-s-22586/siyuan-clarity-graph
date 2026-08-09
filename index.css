@@ -277,8 +277,7 @@
 }
 
 .cg-label {
-  pointer-events: painted;
-  cursor: pointer;
+  pointer-events: none;
   fill: #f6f7fb;
   font-size: 13px;
   font-weight: 650;
@@ -287,6 +286,12 @@
   stroke-width: 5px;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.cg-label-target {
+  fill: transparent;
+  stroke: transparent;
+  pointer-events: all;
 }
 
 .cg-tooltip {

@@ -453,11 +453,21 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       viewport.appendChild(nodeGroup);
       const labelScore = Math.min(1, (node.degree + 1) / 9);
       if (labelScore >= this.settings.labelThreshold || nodes.length < 160) {
+        const labelText = truncate(node.title, 28);
+        const labelX = node.x + radius + 5;
+        const labelY = node.y + 4;
+        const labelHit = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        labelHit.setAttribute("class", "cg-label-target");
+        labelHit.setAttribute("x", String(labelX - 4));
+        labelHit.setAttribute("y", String(labelY - 14));
+        labelHit.setAttribute("width", String(labelText.length * 7.4 + 10));
+        labelHit.setAttribute("height", "22");
+        nodeGroup.appendChild(labelHit);
         const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
         label.setAttribute("class", "cg-label");
-        label.setAttribute("x", String(node.x + radius + 5));
-        label.setAttribute("y", String(node.y + 4));
-        label.textContent = truncate(node.title, 28);
+        label.setAttribute("x", String(labelX));
+        label.setAttribute("y", String(labelY));
+        label.textContent = labelText;
         nodeGroup.appendChild(label);
       }
     }
