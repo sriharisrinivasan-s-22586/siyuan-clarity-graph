@@ -810,6 +810,22 @@ export default class ClarityGraphPlugin extends Plugin {
     svg.addEventListener("pointerup", () => {
       dragging = false;
     });
+    svg.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const anchorX = event.clientX - rect.left;
+      const anchorY = event.clientY - rect.top;
+      const graphX = (anchorX - this.view.x) / this.view.scale;
+      const graphY = (anchorY - this.view.y) / this.view.scale;
+      const factor = Math.max(0.82, Math.min(1.22, Math.exp(-event.deltaY * 0.004)));
+      const nextScale = Math.max(0.12, Math.min(5, this.view.scale * factor));
+
+      this.view.scale = nextScale;
+      this.view.x = anchorX - graphX * nextScale;
+      this.view.y = anchorY - graphY * nextScale;
+      this.clampView();
+      this.scheduleViewTransform();
+    }, { passive: false });
   }
 
   private clampView() {
