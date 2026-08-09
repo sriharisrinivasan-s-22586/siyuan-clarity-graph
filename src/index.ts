@@ -241,16 +241,19 @@ export default class ClarityGraphPlugin extends Plugin {
     const empty = this.root.querySelector<HTMLElement>(".cg-empty");
     if (empty) {
       empty.style.display = "grid";
-      empty.textContent = "Loading every note reference...";
+      empty.textContent = "Refreshing SiYuan index...";
     }
 
     try {
+      await this.flushIndex();
+      if (empty) empty.textContent = "Loading every note reference...";
       this.graph = await this.loadGraph();
       this.applyGroupsAndColors();
       this.seedPositions();
       this.simulate();
       this.fitView(this.visibleNodes());
       this.draw();
+      showMessage(`Clarity Graph refreshed: ${this.graph.nodes.length} notes, ${this.graph.links.length} links`, 2600);
     } catch (error) {
       console.error(error);
       showMessage("Clarity Graph failed to load global references");
@@ -321,15 +324,28 @@ export default class ClarityGraphPlugin extends Plugin {
     return { nodes, links };
   }
 
-  private async sql(stmt: string): Promise<Record<string, unknown>[]> {
-    const response = await fetch("/api/query/sql", {
+  private async flushIndex() {
+    try {
+      await this.kernelPost("/api/sqlite/flushTransaction", {});
+      await delay(250);
+    } catch (error) {
+      console.warn("Clarity Graph could not flush SQLite transaction before refresh", error);
+    }
+  }
+
+  private async kernelPost(path: string, body: Record<string, unknown>) {
+    const response = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stmt })
+      body: JSON.stringify(body)
     });
     const payload = await response.json();
-    if (payload.code !== 0) throw new Error(payload.msg || "SQL query failed");
-    return payload.data ?? [];
+    if (payload.code !== 0) throw new Error(payload.msg || `${path} failed`);
+    return payload.data;
+  }
+
+  private async sql(stmt: string): Promise<Record<string, unknown>[]> {
+    return await this.kernelPost("/api/query/sql", { stmt }) ?? [];
   }
 
   private applyGroupsAndColors() {
@@ -853,6 +869,10 @@ function escapeAttr(value: string) {
 
 function cssEscape(value: string) {
   return CSS.escape ? CSS.escape(value) : value.replace(/["\\]/g, "\\$&");
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function loadSettings(): Settings {

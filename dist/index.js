@@ -183,15 +183,18 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     const empty = this.root.querySelector(".cg-empty");
     if (empty) {
       empty.style.display = "grid";
-      empty.textContent = "Loading every note reference...";
+      empty.textContent = "Refreshing SiYuan index...";
     }
     try {
+      await this.flushIndex();
+      if (empty) empty.textContent = "Loading every note reference...";
       this.graph = await this.loadGraph();
       this.applyGroupsAndColors();
       this.seedPositions();
       this.simulate();
       this.fitView(this.visibleNodes());
       this.draw();
+      siyuan.showMessage(`Clarity Graph refreshed: ${this.graph.nodes.length} notes, ${this.graph.links.length} links`, 2600);
     } catch (error) {
       console.error(error);
       siyuan.showMessage("Clarity Graph failed to load global references");
@@ -255,15 +258,26 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     assignComponents(nodes, links);
     return { nodes, links };
   }
-  async sql(stmt) {
-    const response = await fetch("/api/query/sql", {
+  async flushIndex() {
+    try {
+      await this.kernelPost("/api/sqlite/flushTransaction", {});
+      await delay(250);
+    } catch (error) {
+      console.warn("Clarity Graph could not flush SQLite transaction before refresh", error);
+    }
+  }
+  async kernelPost(path, body) {
+    const response = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stmt })
+      body: JSON.stringify(body)
     });
     const payload = await response.json();
-    if (payload.code !== 0) throw new Error(payload.msg || "SQL query failed");
-    return payload.data ?? [];
+    if (payload.code !== 0) throw new Error(payload.msg || `${path} failed`);
+    return payload.data;
+  }
+  async sql(stmt) {
+    return await this.kernelPost("/api/query/sql", { stmt }) ?? [];
   }
   applyGroupsAndColors() {
     const seen = /* @__PURE__ */ new Map();
@@ -721,6 +735,9 @@ function escapeAttr(value) {
 }
 function cssEscape(value) {
   return CSS.escape ? CSS.escape(value) : value.replace(/["\\]/g, "\\$&");
+}
+function delay(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 function loadSettings() {
   try {
