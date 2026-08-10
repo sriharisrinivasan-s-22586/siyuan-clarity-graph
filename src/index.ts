@@ -102,7 +102,14 @@ export default class ClarityGraphPlugin extends Plugin {
   private settings: Settings = loadSettings();
   private view = { x: 0, y: 0, scale: 1 };
   private viewFrame?: number;
+  private cachedBounds?: { minX: number; maxX: number; minY: number; maxY: number };
+  private cachedStageDims = { width: 900, height: 620 };
+  private cachedCanvasRect = { left: 0, top: 0 };
+  private cachedVisibleNodes: GraphNode[] = [];
+  private cachedVisibleLinks: Array<{ source: GraphNode; target: GraphNode; count: number }> = [];
+  private hoveredNodeId?: string;
   private openTopBarElement?: HTMLElement;
+  private pulseFrame?: number;
 
   async onload() {
     const plugin = this;
@@ -117,6 +124,7 @@ export default class ClarityGraphPlugin extends Plugin {
       beforeDestroy() {
         plugin.hideTooltip();
         plugin.cancelViewFrame();
+        plugin.stopPulseLoop();
         plugin.root?.classList.remove("cg-host");
         plugin.root = undefined;
       }
@@ -169,7 +177,7 @@ export default class ClarityGraphPlugin extends Plugin {
         </header>
         <main class="cg-layout">
           <section class="cg-stage">
-            <svg class="cg-svg" role="img" aria-label="SiYuan global note graph"></svg>
+            <canvas class="cg-canvas"></canvas>
             <div class="cg-tooltip"></div>
             <div class="cg-empty">Loading global graph...</div>
           </section>
@@ -213,7 +221,13 @@ export default class ClarityGraphPlugin extends Plugin {
       window.setTimeout(() => this.fitView(this.visibleNodes()), 0);
     });
     this.root.querySelector(".cg-search")?.addEventListener("input", () => this.draw());
-    this.root.querySelector(".cg-stage")?.addEventListener("pointerleave", () => this.hideTooltip());
+    this.root.querySelector(".cg-stage")?.addEventListener("pointerleave", () => {
+      this.hideTooltip();
+      if (this.hoveredNodeId !== undefined) {
+        this.hoveredNodeId = undefined;
+        this.scheduleViewTransform();
+      }
+    });
     this.root.addEventListener("scroll", () => this.hideTooltip(), true);
     this.root.querySelector(".cg-reset")?.addEventListener("click", () => {
       this.settings = { ...DEFAULT_SETTINGS, colors: {} };
@@ -353,7 +367,7 @@ export default class ClarityGraphPlugin extends Plugin {
 
     const topLevelByPathGroup = new Map(nodes.filter((node) => node.isTopLevel).map((node) => [`${node.box}:${node.pathGroup}`, node]));
     for (const node of nodes) {
-      if (node.isTopLevel || pathDepth(node.hpath) < 2) continue;
+      if (node.isTopLevel || pathDepth(node.hpath) !== 2) continue;
       const parent = topLevelByPathGroup.get(`${node.box}:${node.pathGroup}`);
       if (!parent || parent.id === node.id) continue;
       counts.set(`${parent.id}->${node.id}`, Math.max(counts.get(`${parent.id}->${node.id}`) ?? 0, 1));
@@ -611,105 +625,178 @@ export default class ClarityGraphPlugin extends Plugin {
   private draw() {
     if (!this.root) return;
     this.cancelViewFrame();
-    const svg = this.root.querySelector<SVGSVGElement>(".cg-svg");
+    const canvas = this.root.querySelector<HTMLCanvasElement>(".cg-canvas");
+    const stage = this.root.querySelector<HTMLElement>(".cg-stage");
     const empty = this.root.querySelector<HTMLElement>(".cg-empty");
-    const tooltip = this.root.querySelector<HTMLElement>(".cg-tooltip");
-    if (!svg || !empty || !tooltip) return;
+    if (!canvas || !stage || !empty) return;
+
+    const width = stage.clientWidth || 900;
+    const height = stage.clientHeight || 620;
+    this.cachedStageDims = { width, height };
+    const canvasRect = canvas.getBoundingClientRect();
+    this.cachedCanvasRect = { left: canvasRect.left, top: canvasRect.top };
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
 
     const nodes = this.visibleNodes();
     const visible = new Set(nodes.map((node) => node.id));
-    const links = this.graph.links.filter((link) => visible.has(link.source) && visible.has(link.target));
     const byId = new Map(this.graph.nodes.map((node) => [node.id, node]));
-    svg.innerHTML = "";
+    this.cachedVisibleNodes = nodes;
+    this.cachedVisibleLinks = this.graph.links
+      .filter((link) => visible.has(link.source) && visible.has(link.target))
+      .map((link) => ({ source: byId.get(link.source)!, target: byId.get(link.target)!, count: link.count }))
+      .filter((link) => link.source && link.target);
+    this.cachedBounds = this.graphBounds(nodes);
+
     empty.style.display = nodes.length ? "none" : "grid";
     empty.textContent = "No notes match this graph filter.";
 
-    const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
-    defs.innerHTML = `<marker id="cg-arrow" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="6" markerHeight="6" orient="auto" markerUnits="strokeWidth"><path d="M 1 1 L 11 6 L 1 11 z"></path></marker>`;
-    svg.appendChild(defs);
+    this.paintCanvas();
+    this.attachPanZoom(canvas);
+    if (nodes.some((n) => n.hasSubLinks)) this.startPulseLoop();
+    else this.stopPulseLoop();
+  }
 
-    const viewport = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    viewport.setAttribute("class", "cg-viewport");
-    viewport.setAttribute("transform", `translate(${this.view.x} ${this.view.y}) scale(${this.view.scale})`);
-    svg.appendChild(viewport);
-    this.drawNotebookAreas(viewport, nodes);
+  private paintCanvas() {
+    const canvas = this.root?.querySelector<HTMLCanvasElement>(".cg-canvas");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-    for (const link of links) {
-      const source = byId.get(link.source);
-      const target = byId.get(link.target);
-      if (!source || !target) continue;
-      const points = linkBoundaryPoints(source, target, this.nodeRadius(source), this.nodeRadius(target), this.settings.arrows ? 9 : 2);
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("class", "cg-link");
-      line.setAttribute("x1", String(points.x1));
-      line.setAttribute("y1", String(points.y1));
-      line.setAttribute("x2", String(points.x2));
-      line.setAttribute("y2", String(points.y2));
-      line.setAttribute("stroke-width", String(this.settings.linkThickness * Math.min(Math.sqrt(link.count), 3)));
-      line.setAttribute("stroke-opacity", String(this.settings.lineOpacity));
-      if (this.settings.arrows) line.setAttribute("marker-end", "url(#cg-arrow)");
-      viewport.appendChild(line);
+    const dpr = window.devicePixelRatio || 1;
+    const { x, y, scale } = this.view;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+
+    // Notebook areas
+    const byNotebook = new Map<string, GraphNode[]>();
+    for (const node of this.cachedVisibleNodes) {
+      const key = notebookColorKey(node);
+      byNotebook.set(key, [...(byNotebook.get(key) ?? []), node]);
+    }
+    const notebookKeys = [...byNotebook.keys()];
+    for (const [key, nbNodes] of byNotebook) {
+      if (!nbNodes.length) continue;
+      const minX = Math.min(...nbNodes.map((n) => n.x - this.nodeRadius(n))) - 170;
+      const maxX = Math.max(...nbNodes.map((n) => n.x + this.nodeRadius(n))) + 170;
+      const minY = Math.min(...nbNodes.map((n) => n.y - this.nodeRadius(n))) - 140;
+      const maxY = Math.max(...nbNodes.map((n) => n.y + this.nodeRadius(n))) + 140;
+      const color = this.settings.colors[key] ?? colorFor(key, notebookKeys, true);
+
+      ctx.beginPath();
+      ctx.rect(minX, minY, maxX - minX, maxY - minY);
+      ctx.fillStyle = hexToRgba(color, 0.08);
+      ctx.fill();
+      ctx.strokeStyle = hexToRgba(color, 0.36);
+      ctx.lineWidth = 1.8 / scale;
+      ctx.setLineDash([14, 9]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.save();
+      ctx.font = "700 20px Inter, ui-sans-serif, sans-serif";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = "rgba(18, 20, 26, 0.92)";
+      ctx.strokeText(displayColorKey(key), minX + 18, minY + 28);
+      ctx.fillStyle = "rgba(230, 236, 246, 0.82)";
+      ctx.fillText(displayColorKey(key), minX + 18, minY + 28);
+      ctx.restore();
     }
 
-    for (const node of nodes) {
-      const radius = this.nodeRadius(node);
-      const targetRadius = Math.max(radius + 10, 22);
-      const nodeGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      nodeGroup.setAttribute("class", "cg-node-group");
-      nodeGroup.addEventListener("click", () => {
-        this.hideTooltip();
-        void openTab({ app: this.app, doc: { id: node.id } });
-      });
+    // Links
+    ctx.globalAlpha = this.settings.lineOpacity;
+    for (const link of this.cachedVisibleLinks) {
+      const sw = this.settings.linkThickness * Math.min(Math.sqrt(link.count), 3) / scale;
+      const points = linkBoundaryPoints(link.source, link.target, this.nodeRadius(link.source), this.nodeRadius(link.target), this.settings.arrows ? 9 : 2);
+      ctx.strokeStyle = "#7a8495";
+      ctx.lineWidth = sw;
+      ctx.beginPath();
+      ctx.moveTo(points.x1, points.y1);
+      ctx.lineTo(points.x2, points.y2);
+      ctx.stroke();
 
-      const target = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      target.setAttribute("class", "cg-node-target");
-      target.setAttribute("cx", String(node.x));
-      target.setAttribute("cy", String(node.y));
-      target.setAttribute("r", String(targetRadius));
-      nodeGroup.appendChild(target);
+      if (this.settings.arrows) {
+        const angle = Math.atan2(points.y2 - points.y1, points.x2 - points.x1);
+        const head = 9 / scale;
+        ctx.fillStyle = "#9aa4b5";
+        ctx.beginPath();
+        ctx.moveTo(points.x2, points.y2);
+        ctx.lineTo(points.x2 - head * Math.cos(angle - Math.PI / 6), points.y2 - head * Math.sin(angle - Math.PI / 6));
+        ctx.lineTo(points.x2 - head * Math.cos(angle + Math.PI / 6), points.y2 - head * Math.sin(angle + Math.PI / 6));
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // Halos (behind nodes)
+    for (const node of this.cachedVisibleNodes) {
+      if (!node.hasSubLinks) continue;
+      const radius = this.nodeRadius(node);
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius + 4, 0, Math.PI * 2);
+      ctx.strokeStyle = lightenHex(node.color, 0.38);
+      ctx.lineWidth = 2.5 / scale;
+      ctx.globalAlpha = 0.88;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // Nodes
+    for (const node of this.cachedVisibleNodes) {
+      const radius = this.nodeRadius(node);
+      const isHovered = node.id === this.hoveredNodeId;
 
       if (node.hasSubLinks) {
-        const halo = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        halo.setAttribute("class", "cg-node-halo");
-        halo.setAttribute("cx", String(node.x));
-        halo.setAttribute("cy", String(node.y));
-        halo.setAttribute("r", String(radius + 8));
-        halo.setAttribute("stroke", lightenHex(node.color, 0.38));
-        nodeGroup.appendChild(halo);
+        const pulse = (Math.sin(performance.now() / 700) + 1) / 2;
+        ctx.shadowBlur = (14 + pulse * 12) / scale;
+        ctx.shadowColor = "rgba(255, 210, 90, 0.72)";
+      } else if (node.isTopLevel) {
+        ctx.shadowBlur = 14 / scale;
+        ctx.shadowColor = "rgba(255, 255, 255, 0.40)";
       }
 
-      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      circle.setAttribute("class", `cg-node${node.degree === 0 ? " is-orphan" : ""}${node.isTopLevel ? " is-primary" : ""}${node.hasSubLinks ? " is-hub" : ""}`);
-      circle.setAttribute("cx", String(node.x));
-      circle.setAttribute("cy", String(node.y));
-      circle.setAttribute("r", String(radius));
-      circle.setAttribute("fill", node.hasSubLinks ? darkenHex(node.color, 0.24) : node.color);
-      nodeGroup.appendChild(circle);
-      viewport.appendChild(nodeGroup);
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = node.hasSubLinks ? darkenHex(node.color, 0.24) : node.color;
+      ctx.fill();
+      ctx.shadowBlur = 0;
 
-      const labelScore = Math.min(1, (node.degree + 1) / 9);
-      if (labelScore >= this.settings.labelThreshold || nodes.length < 160) {
-        const labelText = truncate(node.title, 28);
-        const labelX = node.x + radius + 5;
-        const labelY = node.y + 4;
-        const labelHit = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-        labelHit.setAttribute("class", "cg-label-target");
-        labelHit.setAttribute("x", String(labelX - 4));
-        labelHit.setAttribute("y", String(labelY - 14));
-        labelHit.setAttribute("width", String(labelText.length * 7.4 + 10));
-        labelHit.setAttribute("height", "22");
-        nodeGroup.appendChild(labelHit);
-
-        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        label.setAttribute("class", "cg-label");
-        label.setAttribute("x", String(labelX));
-        label.setAttribute("y", String(labelY));
-        label.textContent = labelText;
-        nodeGroup.appendChild(label);
-      }
+      let strokeColor = "rgba(255, 255, 255, 0.86)";
+      let strokeWidth = 1.6 / scale;
+      if (node.isTopLevel) { strokeColor = "#ffffff"; strokeWidth = 4 / scale; }
+      if (node.hasSubLinks) { strokeColor = "#fff7d6"; strokeWidth = 3 / scale; }
+      if (isHovered) { strokeColor = "#ffffff"; strokeWidth = (node.isTopLevel || node.hasSubLinks) ? 3.6 / scale : 2.6 / scale; }
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = strokeWidth;
+      ctx.stroke();
     }
 
-    this.attachPanZoom(svg);
+    // Labels — font size in graph coords so they scale with zoom, same as SVG did
+    ctx.font = "650 15px Inter, ui-sans-serif, sans-serif";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 5;
+    for (const node of this.cachedVisibleNodes) {
+      const radius = this.nodeRadius(node);
+      const labelScore = Math.min(1, (node.degree + 1) / 9);
+      if (labelScore < this.settings.labelThreshold && this.cachedVisibleNodes.length >= 160) continue;
+      const labelText = truncate(node.title, 28);
+      const labelX = node.x + radius + 5;
+      const labelY = node.y + 4;
+      ctx.strokeStyle = "rgba(13, 14, 18, 0.96)";
+      ctx.strokeText(labelText, labelX, labelY);
+      ctx.fillStyle = "#f6f7fb";
+      ctx.fillText(labelText, labelX, labelY);
+    }
+
+    ctx.restore();
   }
 
   private fitView(nodes: GraphNode[]) {
@@ -724,6 +811,7 @@ export default class ClarityGraphPlugin extends Plugin {
     const maxY = Math.max(...ys);
     const width = stage.clientWidth || 900;
     const height = stage.clientHeight || 620;
+    this.cachedStageDims = { width, height };
     const scale = Math.min(width / Math.max(maxX - minX + 110, 1), height / Math.max(maxY - minY + 110, 1), 1.7);
     this.view = {
       scale,
@@ -737,42 +825,13 @@ export default class ClarityGraphPlugin extends Plugin {
     const node = this.graph.nodes.find((item) => item.id === id);
     const stage = this.root?.querySelector<HTMLElement>(".cg-stage");
     if (!node || !stage) return;
+    this.cachedStageDims = { width: stage.clientWidth || 900, height: stage.clientHeight || 620 };
     this.view = {
       scale: 1.25,
-      x: stage.clientWidth / 2 - node.x * 1.25,
-      y: stage.clientHeight / 2 - node.y * 1.25
+      x: this.cachedStageDims.width / 2 - node.x * 1.25,
+      y: this.cachedStageDims.height / 2 - node.y * 1.25
     };
     this.applyViewTransform();
-  }
-
-  private drawNotebookAreas(viewport: SVGGElement, nodes: GraphNode[]) {
-    const byNotebook = new Map<string, GraphNode[]>();
-    for (const node of nodes) {
-      const key = notebookColorKey(node);
-      byNotebook.set(key, [...(byNotebook.get(key) ?? []), node]);
-    }
-
-    for (const [key, notebookNodes] of byNotebook) {
-      if (!notebookNodes.length) continue;
-      const minX = Math.min(...notebookNodes.map((node) => node.x - this.nodeRadius(node))) - 170;
-      const maxX = Math.max(...notebookNodes.map((node) => node.x + this.nodeRadius(node))) + 170;
-      const minY = Math.min(...notebookNodes.map((node) => node.y - this.nodeRadius(node))) - 140;
-      const maxY = Math.max(...notebookNodes.map((node) => node.y + this.nodeRadius(node))) + 140;
-      const color = this.settings.colors[key] ?? colorFor(key, [...byNotebook.keys()], true);
-      const area = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-      area.setAttribute("class", "cg-notebook-area");
-      area.setAttribute("points", `${minX},${minY} ${maxX},${minY} ${maxX},${maxY} ${minX},${maxY}`);
-      area.setAttribute("fill", hexToRgba(color, 0.08));
-      area.setAttribute("stroke", hexToRgba(color, 0.36));
-      viewport.appendChild(area);
-
-      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      label.setAttribute("class", "cg-notebook-label");
-      label.setAttribute("x", String(minX + 18));
-      label.setAttribute("y", String(minY + 24));
-      label.textContent = displayColorKey(key);
-      viewport.appendChild(label);
-    }
   }
 
   private nodeRadius(node: GraphNode) {
@@ -780,25 +839,36 @@ export default class ClarityGraphPlugin extends Plugin {
     return node.isTopLevel ? baseRadius * 1.18 : baseRadius;
   }
 
-  private attachPanZoom(svg: SVGSVGElement) {
-    if (svg.dataset.bound === "true") return;
-    svg.dataset.bound = "true";
+  private attachPanZoom(canvas: HTMLCanvasElement) {
+    if (canvas.dataset.bound === "true") return;
+    canvas.dataset.bound = "true";
+
+    const stage = canvas.parentElement;
+    if (stage) {
+      stage.addEventListener("wheel", (e) => { e.preventDefault(); }, { passive: false, capture: true });
+    }
+
     let dragging = false;
+    let didDrag = false;
     let lastX = 0;
     let lastY = 0;
 
-    svg.addEventListener("pointerdown", (event) => {
-      if ((event.target as Element).closest(".cg-node-group")) return;
+    canvas.addEventListener("pointerdown", (event) => {
       dragging = true;
+      didDrag = false;
       lastX = event.clientX;
       lastY = event.clientY;
-      svg.setPointerCapture(event.pointerId);
+      canvas.setPointerCapture(event.pointerId);
+      canvas.style.cursor = "grabbing";
     });
-    svg.addEventListener("pointermove", (event) => {
+    canvas.addEventListener("pointermove", (event) => {
       if (dragging) {
+        const dx = event.clientX - lastX;
+        const dy = event.clientY - lastY;
+        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) didDrag = true;
         this.hideTooltip();
-        this.view.x += event.clientX - lastX;
-        this.view.y += event.clientY - lastY;
+        this.view.x += dx;
+        this.view.y += dy;
         lastX = event.clientX;
         lastY = event.clientY;
         this.clampView();
@@ -807,14 +877,29 @@ export default class ClarityGraphPlugin extends Plugin {
       }
       this.updateHoverFromPointer(event);
     });
-    svg.addEventListener("pointerup", () => {
+    canvas.addEventListener("pointerup", (event) => {
+      if (dragging && !didDrag) {
+        const node = this.nodeAtPointer(event);
+        if (node) {
+          this.hideTooltip();
+          void openTab({ app: this.app, doc: { id: node.id } });
+        }
+      }
       dragging = false;
+      canvas.style.cursor = this.hoveredNodeId ? "pointer" : "grab";
     });
-    svg.addEventListener("wheel", (event) => {
+    canvas.addEventListener("pointerleave", () => {
+      if (!dragging) {
+        this.hoveredNodeId = undefined;
+        canvas.style.cursor = "grab";
+        this.scheduleViewTransform();
+      }
+    });
+    canvas.addEventListener("wheel", (event) => {
       event.preventDefault();
-      const rect = svg.getBoundingClientRect();
-      const anchorX = event.clientX - rect.left;
-      const anchorY = event.clientY - rect.top;
+      event.stopPropagation();
+      const anchorX = event.clientX - this.cachedCanvasRect.left;
+      const anchorY = event.clientY - this.cachedCanvasRect.top;
       const graphX = (anchorX - this.view.x) / this.view.scale;
       const graphY = (anchorY - this.view.y) / this.view.scale;
       const factor = Math.max(0.82, Math.min(1.22, Math.exp(-event.deltaY * 0.004)));
@@ -829,31 +914,19 @@ export default class ClarityGraphPlugin extends Plugin {
   }
 
   private clampView() {
-    const stage = this.root?.querySelector<HTMLElement>(".cg-stage");
-    const bounds = this.graphBounds(this.visibleNodes());
-    if (!stage || !bounds) return;
+    const bounds = this.cachedBounds;
+    if (!bounds) return;
 
-    const width = stage.clientWidth || 900;
-    const height = stage.clientHeight || 620;
+    const { width, height } = this.cachedStageDims;
     const margin = 110;
-    const scaledWidth = (bounds.maxX - bounds.minX) * this.view.scale;
-    const scaledHeight = (bounds.maxY - bounds.minY) * this.view.scale;
 
-    if (scaledWidth <= width - margin * 2) {
-      this.view.x = width / 2 - ((bounds.minX + bounds.maxX) / 2) * this.view.scale;
-    } else {
-      const minX = margin - bounds.maxX * this.view.scale;
-      const maxX = width - margin - bounds.minX * this.view.scale;
-      this.view.x = clamp(this.view.x, minX, maxX);
-    }
+    const minX = margin - bounds.maxX * this.view.scale;
+    const maxX = width - margin - bounds.minX * this.view.scale;
+    this.view.x = clamp(this.view.x, minX, maxX);
 
-    if (scaledHeight <= height - margin * 2) {
-      this.view.y = height / 2 - ((bounds.minY + bounds.maxY) / 2) * this.view.scale;
-    } else {
-      const minY = margin - bounds.maxY * this.view.scale;
-      const maxY = height - margin - bounds.minY * this.view.scale;
-      this.view.y = clamp(this.view.y, minY, maxY);
-    }
+    const minY = margin - bounds.maxY * this.view.scale;
+    const maxY = height - margin - bounds.minY * this.view.scale;
+    this.view.y = clamp(this.view.y, minY, maxY);
   }
 
   private graphBounds(nodes: GraphNode[]) {
@@ -880,14 +953,28 @@ export default class ClarityGraphPlugin extends Plugin {
   }
 
   private applyViewTransformNow() {
-    const viewport = this.root?.querySelector<SVGGElement>(".cg-viewport");
-    viewport?.setAttribute("transform", `translate(${this.view.x} ${this.view.y}) scale(${this.view.scale})`);
+    this.paintCanvas();
   }
 
   private cancelViewFrame() {
     if (this.viewFrame === undefined) return;
     window.cancelAnimationFrame(this.viewFrame);
     this.viewFrame = undefined;
+  }
+
+  private startPulseLoop() {
+    if (this.pulseFrame !== undefined) return;
+    const loop = () => {
+      this.paintCanvas();
+      this.pulseFrame = window.requestAnimationFrame(loop);
+    };
+    this.pulseFrame = window.requestAnimationFrame(loop);
+  }
+
+  private stopPulseLoop() {
+    if (this.pulseFrame === undefined) return;
+    window.cancelAnimationFrame(this.pulseFrame);
+    this.pulseFrame = undefined;
   }
 
   private showTooltip(event: MouseEvent, node: GraphNode) {
@@ -907,36 +994,39 @@ export default class ClarityGraphPlugin extends Plugin {
   }
 
   private updateHoverFromPointer(event: PointerEvent) {
+    const canvas = this.root?.querySelector<HTMLCanvasElement>(".cg-canvas");
     const node = this.nodeAtPointer(event);
+    const prevId = this.hoveredNodeId;
     if (!node) {
+      this.hoveredNodeId = undefined;
+      if (canvas) canvas.style.cursor = "grab";
       this.hideTooltip();
+      if (prevId !== undefined) this.scheduleViewTransform();
       return;
+    }
+    if (node.id !== prevId) {
+      this.hoveredNodeId = node.id;
+      if (canvas) canvas.style.cursor = "pointer";
+      this.scheduleViewTransform();
     }
     this.showTooltip(event as unknown as MouseEvent, node);
   }
 
   private nodeAtPointer(event: PointerEvent) {
-    const svg = this.root?.querySelector<SVGSVGElement>(".cg-svg");
-    if (!svg) return undefined;
-    const rect = svg.getBoundingClientRect();
-    const graphX = (event.clientX - rect.left - this.view.x) / this.view.scale;
-    const graphY = (event.clientY - rect.top - this.view.y) / this.view.scale;
-    const visibleNodes = this.visibleNodes();
+    const graphX = (event.clientX - this.cachedCanvasRect.left - this.view.x) / this.view.scale;
+    const graphY = (event.clientY - this.cachedCanvasRect.top - this.view.y) / this.view.scale;
+    const nodes = this.cachedVisibleNodes;
 
-    for (const node of visibleNodes) {
+    for (const node of nodes) {
       const radius = this.nodeRadius(node);
-      const dx = graphX - node.x;
-      const dy = graphY - node.y;
-      if (Math.hypot(dx, dy) <= Math.max(radius + 12, 24)) return node;
+      if (Math.hypot(graphX - node.x, graphY - node.y) <= Math.max(radius + 12, 24)) return node;
 
       const labelScore = Math.min(1, (node.degree + 1) / 9);
-      if (labelScore >= this.settings.labelThreshold || visibleNodes.length < 160) {
+      if (labelScore >= this.settings.labelThreshold || nodes.length < 160) {
         const labelText = truncate(node.title, 28);
         const labelX = node.x + radius + 5;
         const labelY = node.y + 4;
-        const withinLabelX = graphX >= labelX - 6 && graphX <= labelX + labelText.length * 7.8 + 12;
-        const withinLabelY = graphY >= labelY - 16 && graphY <= labelY + 8;
-        if (withinLabelX && withinLabelY) return node;
+        if (graphX >= labelX - 6 && graphX <= labelX + labelText.length * 7.8 + 12 && graphY >= labelY - 16 && graphY <= labelY + 8) return node;
       }
     }
 
