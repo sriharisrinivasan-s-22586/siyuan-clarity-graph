@@ -6,7 +6,6 @@ type ColorMode = "path" | "component" | "notebook" | "tag";
 type Settings = {
   version: number;
   colorMode: ColorMode;
-  includeOrphans: boolean;
   arrows: boolean;
   labelThreshold: number;
   nodeSize: number;
@@ -24,6 +23,7 @@ type FileTreeDoc = {
   hpath: string;
   box: string;
   boxName: string;
+  parentId: string;
 };
 
 type NotebookInfo = {
@@ -48,6 +48,7 @@ type GraphNode = {
   hpath: string;
   box: string;
   boxName: string;
+  parentId: string;
   tag: string;
   updated: string;
   pathGroup: string;
@@ -56,9 +57,8 @@ type GraphNode = {
   component: string;
   groupKey: string;
   color: string;
-  inbound: number;
-  outbound: number;
-  hierarchyCount: number;
+  parentCount: number;
+  childCount: number;
   degree: number;
   x: number;
   y: number;
@@ -84,7 +84,6 @@ const DEFAULT_COLORS = ["#3b82f6", "#ef4444", "#a855f7", "#22c55e", "#f59e0b", "
 const DEFAULT_SETTINGS: Settings = {
   version: SETTINGS_VERSION,
   colorMode: "path",
-  includeOrphans: true,
   arrows: true,
   labelThreshold: 0.14,
   nodeSize: 2.45,
@@ -180,7 +179,7 @@ export default class ClarityGraphPlugin extends Plugin {
         <header class="cg-header">
           <div>
             <strong>Global Graph</strong>
-            <span class="cg-subtitle">All notes, references, groups, and orphans</span>
+            <span class="cg-subtitle">Direct parent-child note hierarchy</span>
           </div>
           <input class="cg-search" type="search" placeholder="Search notes, paths, tags" />
           <button class="cg-icon cg-fit" type="button" title="Fit graph">Fit</button>
@@ -195,7 +194,6 @@ export default class ClarityGraphPlugin extends Plugin {
           </section>
           <aside class="cg-controls">
             <h2>Filters</h2>
-            <label class="cg-switch"><span>Show orphans</span><input class="cg-setting" data-setting="includeOrphans" type="checkbox" /></label>
             <label class="cg-switch"><span>Arrows</span><input class="cg-setting" data-setting="arrows" type="checkbox" /></label>
             <label><span>Color by</span><select class="cg-setting" data-setting="colorMode">
               <option value="path">Top-level note</option>
@@ -331,7 +329,8 @@ export default class ClarityGraphPlugin extends Plugin {
       title: String(row.content || lastPathSegment(String(row.hpath || "")) || "Untitled"),
       hpath: String(row.hpath || ""),
       box: String(row.box || ""),
-      boxName: String(row.box || "Notebook")
+      boxName: String(row.box || "Notebook"),
+      parentId: ""
     }));
 
     const nodes = sourceDocs.map((doc, index) => {
@@ -343,6 +342,7 @@ export default class ClarityGraphPlugin extends Plugin {
         hpath,
         box: String(sql?.box || doc.box || ""),
         boxName: doc.boxName || String(sql?.box || "Notebook"),
+        parentId: doc.parentId,
         tag: String(sql?.tag || ""),
         updated: String(sql?.updated || ""),
         pathGroup: firstPathSegment(hpath),
@@ -351,9 +351,8 @@ export default class ClarityGraphPlugin extends Plugin {
         component: "",
         groupKey: "",
         color: DEFAULT_COLORS[index % DEFAULT_COLORS.length],
-        inbound: 0,
-        outbound: 0,
-        hierarchyCount: 0,
+        parentCount: 0,
+        childCount: 0,
         degree: 0,
         x: seededRange(`${doc.id}:x`, -260, 260),
         y: seededRange(`${doc.id}:y`, -210, 210),
@@ -362,22 +361,12 @@ export default class ClarityGraphPlugin extends Plugin {
       };
     });
     const docIds = new Set(nodes.map((node) => node.id));
-
-    const refs = await this.sql(`
-      SELECT root_id, def_block_root_id
-      FROM refs
-      WHERE root_id != '' AND def_block_root_id != '' AND root_id != def_block_root_id
-    `);
     const counts = new Map<string, number>();
 
-    for (const row of refs) {
-      const source = String(row.root_id);
-      const target = String(row.def_block_root_id);
-      if (!docIds.has(source) || !docIds.has(target)) continue;
-      counts.set(`${source}->${target}`, (counts.get(`${source}->${target}`) ?? 0) + 1);
+    for (const doc of sourceDocs) {
+      if (!doc.parentId || !docIds.has(doc.parentId) || !docIds.has(doc.id)) continue;
+      counts.set(`${doc.parentId}->${doc.id}`, 1);
     }
-
-    await this.addSpanReferenceCounts(counts, docIds);
 
     const links = Array.from(counts, ([key, count]) => {
       const [source, target] = key.split("->");
@@ -388,66 +377,16 @@ export default class ClarityGraphPlugin extends Plugin {
     for (const link of links) {
       const source = byId.get(link.source);
       const target = byId.get(link.target);
-      if (source) source.outbound += link.count;
-      if (target) target.inbound += link.count;
-      if (source && target) {
-        if (source.isTopLevel && !target.isTopLevel && target.pathGroup === source.pathGroup) source.hasSubLinks = true;
-        if (target.isTopLevel && !source.isTopLevel && source.pathGroup === target.pathGroup) target.hasSubLinks = true;
-      }
+      if (source) source.childCount += 1;
+      if (target) target.parentCount += 1;
+      if (source) source.hasSubLinks = true;
     }
     for (const node of nodes) {
-      node.degree = node.inbound + node.outbound;
+      node.degree = node.parentCount + node.childCount;
     }
 
     assignComponents(nodes, links);
     return { nodes, links };
-  }
-
-  private async addSpanReferenceCounts(counts: Map<string, number>, docIds: Set<string>) {
-    const spans = await this.sql(`
-      SELECT root_id, markdown, content
-      FROM spans
-      WHERE type = 'textmark block-ref' AND root_id != ''
-    `);
-    const unresolvedTargets = new Set<string>();
-    const spanRefs: Array<{ source: string; targetBlock: string }> = [];
-
-    for (const row of spans) {
-      const source = String(row.root_id || "");
-      if (!docIds.has(source)) continue;
-
-      const targetIds = explicitRefIds(`${String(row.markdown || "")} ${String(row.content || "")}`);
-      for (const targetBlock of targetIds) {
-        if (!targetBlock || targetBlock === source) continue;
-        spanRefs.push({ source, targetBlock });
-        if (!docIds.has(targetBlock)) unresolvedTargets.add(targetBlock);
-      }
-    }
-
-    const blockRoots = await this.blockRootMap([...unresolvedTargets]);
-    for (const ref of spanRefs) {
-      const target = docIds.has(ref.targetBlock) ? ref.targetBlock : blockRoots.get(ref.targetBlock);
-      if (!target || !docIds.has(target) || target === ref.source) continue;
-      counts.set(`${ref.source}->${target}`, Math.max(counts.get(`${ref.source}->${target}`) ?? 0, 1));
-    }
-  }
-
-  private async blockRootMap(ids: string[]) {
-    const roots = new Map<string, string>();
-    const validIds = uniqueSorted(ids.filter((id) => /^[0-9a-z-]+$/i.test(id)));
-    for (let index = 0; index < validIds.length; index += 180) {
-      const batch = validIds.slice(index, index + 180);
-      if (!batch.length) continue;
-      const rows = await this.sql(`
-        SELECT id, root_id
-        FROM blocks
-        WHERE id IN (${batch.map(sqlQuote).join(",")}) AND root_id != ''
-      `);
-      for (const row of rows) {
-        roots.set(String(row.id), String(row.root_id));
-      }
-    }
-    return roots;
   }
 
   private async flushIndex() {
@@ -480,13 +419,13 @@ export default class ClarityGraphPlugin extends Plugin {
     const docs: FileTreeDoc[] = [];
 
     for (const notebook of notebooks) {
-      docs.push(...await this.collectNotebookDocs(notebook, "/", []));
+      docs.push(...await this.collectNotebookDocs(notebook, "/", [], ""));
     }
 
     return docs;
   }
 
-  private async collectNotebookDocs(notebook: NotebookInfo, path: string, ancestors: string[]): Promise<FileTreeDoc[]> {
+  private async collectNotebookDocs(notebook: NotebookInfo, path: string, ancestors: string[], parentId: string): Promise<FileTreeDoc[]> {
     const data = await this.kernelPost("/api/filetree/listDocsByPath", { notebook: notebook.id, path });
     const files = ((data?.files ?? []) as FileTreeEntry[]);
     const docs: FileTreeDoc[] = [];
@@ -501,14 +440,15 @@ export default class ClarityGraphPlugin extends Plugin {
         title,
         hpath,
         box: notebook.id,
-        boxName: notebook.name
+        boxName: notebook.name,
+        parentId
       });
 
       if (Array.isArray(file.files) && file.files.length) {
-        docs.push(...flattenInlineDocs(file.files, notebook, [...ancestors, title]));
+        docs.push(...flattenInlineDocs(file.files, notebook, [...ancestors, title], file.id));
       } else if ((file.subFileCount ?? 0) > 0 || filePath !== path) {
         try {
-          docs.push(...await this.collectNotebookDocs(notebook, filePath, [...ancestors, title]));
+          docs.push(...await this.collectNotebookDocs(notebook, filePath, [...ancestors, title], file.id));
         } catch (error) {
           console.warn("Clarity Graph could not read child docs", filePath, error);
         }
@@ -540,7 +480,7 @@ export default class ClarityGraphPlugin extends Plugin {
       groupSeen.set(node.groupKey, groupIndex + 1);
 
       const center = centers.get(node.groupKey) ?? { x: 0, y: 0 };
-      const orbit = node.degree === 0 ? 95 + seededRange(`${node.id}:orphanOrbit`, 0, 170) : 28 + node.degree * 8;
+      const orbit = node.degree === 0 ? 95 + seededRange(`${node.id}:standaloneOrbit`, 0, 170) : 28 + node.degree * 8;
       const angle = seededRange(`${node.id}:angle`, 0, Math.PI * 2) + groupIndex * 0.47;
       const jitterX = seededRange(`${node.id}:jx`, -64, 64);
       const jitterY = seededRange(`${node.id}:jy`, -64, 64);
@@ -567,7 +507,7 @@ export default class ClarityGraphPlugin extends Plugin {
   }
 
   private groupKeyFor(node: GraphNode) {
-    if (this.settings.colorMode === "component") return node.degree === 0 ? `Orphan: ${node.title}` : node.component;
+    if (this.settings.colorMode === "component") return node.component;
     if (this.settings.colorMode === "notebook") return node.box || "No notebook";
     if (this.settings.colorMode === "tag") return firstTag(node.tag);
     return node.degree === 0 ? `${node.pathGroup} / ${node.title}` : node.pathGroup;
@@ -765,7 +705,6 @@ export default class ClarityGraphPlugin extends Plugin {
   private visibleNodes() {
     const query = this.root?.querySelector<HTMLInputElement>(".cg-search")?.value.trim().toLowerCase() ?? "";
     return this.graph.nodes.filter((node) => {
-      if (!this.settings.includeOrphans && node.degree === 0) return false;
       if (!query) return true;
       return `${node.title} ${node.hpath} ${node.tag} ${node.groupKey}`.toLowerCase().includes(query);
     });
@@ -1174,7 +1113,6 @@ export default class ClarityGraphPlugin extends Plugin {
     tooltip.innerHTML = `
       <strong>${escapeHtml(node.title)}</strong>
       <span>${escapeHtml(node.hpath || "No path")}</span>
-      <span>${node.inbound} incoming · ${node.outbound} outgoing links · ${node.degree} total</span>
       <span>${escapeHtml(node.groupKey)}</span>
       ${node.tag ? `<span>${escapeHtml(node.tag)}</span>` : ""}
       ${node.updated ? `<span>Updated ${formatDate(node.updated)}</span>` : ""}
@@ -1286,7 +1224,7 @@ function assignComponents(nodes: GraphNode[], links: GraphLink[]) {
         stack.push(neighbor);
       }
     }
-    const name = component.length === 1 && (byId.get(component[0])?.degree ?? 0) === 0 ? "Orphan" : `Group ${componentNumber++}`;
+    const name = component.length === 1 && (byId.get(component[0])?.degree ?? 0) === 0 ? "Standalone note" : `Group ${componentNumber++}`;
     for (const id of component) {
       const item = byId.get(id);
       if (item) item.component = name;
@@ -1317,7 +1255,7 @@ function firstPathSegment(hpath: string) {
   return hpath.split("/").filter(Boolean)[0] || "Root";
 }
 
-function flattenInlineDocs(files: FileTreeEntry[], notebook: NotebookInfo, ancestors: string[]): FileTreeDoc[] {
+function flattenInlineDocs(files: FileTreeEntry[], notebook: NotebookInfo, ancestors: string[], parentId: string): FileTreeDoc[] {
   const docs: FileTreeDoc[] = [];
   for (const file of files) {
     if (!file.id) continue;
@@ -1327,10 +1265,11 @@ function flattenInlineDocs(files: FileTreeEntry[], notebook: NotebookInfo, ances
       title,
       hpath: String(file.hPath || `/${[...ancestors, title].join("/")}`),
       box: notebook.id,
-      boxName: notebook.name
+      boxName: notebook.name,
+      parentId
     });
     if (Array.isArray(file.files) && file.files.length) {
-      docs.push(...flattenInlineDocs(file.files, notebook, [...ancestors, title]));
+      docs.push(...flattenInlineDocs(file.files, notebook, [...ancestors, title], file.id));
     }
   }
   return docs;
@@ -1397,26 +1336,6 @@ function displayColorKey(key: string) {
 
 function uniqueSorted(values: string[]) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
-}
-
-function explicitRefIds(value: string) {
-  const ids = new Set<string>();
-  const patterns = [
-    /\(\(([0-9a-z-]+)(?:\s+["'][^"']*["'])?\)\)/gi,
-    /siyuan:\/\/blocks\/([0-9a-z-]+)/gi
-  ];
-
-  for (const pattern of patterns) {
-    for (const match of value.matchAll(pattern)) {
-      if (match[1]) ids.add(match[1]);
-    }
-  }
-
-  return [...ids];
-}
-
-function sqlQuote(value: string) {
-  return `'${value.replace(/'/g, "''")}'`;
 }
 
 function clamp(value: number, min: number, max: number) {
