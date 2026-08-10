@@ -281,6 +281,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       if (!docIds.has(source) || !docIds.has(target)) continue;
       counts.set(`${source}->${target}`, (counts.get(`${source}->${target}`) ?? 0) + 1);
     }
+    await this.addSpanReferenceCounts(counts, docIds);
     const links = Array.from(counts, ([key, count]) => {
       const [source, target] = key.split("->");
       return { source, target, count };
@@ -301,6 +302,48 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     }
     assignComponents(nodes, links);
     return { nodes, links };
+  }
+  async addSpanReferenceCounts(counts, docIds) {
+    const spans = await this.sql(`
+      SELECT root_id, markdown, content
+      FROM spans
+      WHERE type = 'textmark block-ref' AND root_id != ''
+    `);
+    const unresolvedTargets = /* @__PURE__ */ new Set();
+    const spanRefs = [];
+    for (const row of spans) {
+      const source = String(row.root_id || "");
+      if (!docIds.has(source)) continue;
+      const targetIds = explicitRefIds(`${String(row.markdown || "")} ${String(row.content || "")}`);
+      for (const targetBlock of targetIds) {
+        if (!targetBlock || targetBlock === source) continue;
+        spanRefs.push({ source, targetBlock });
+        if (!docIds.has(targetBlock)) unresolvedTargets.add(targetBlock);
+      }
+    }
+    const blockRoots = await this.blockRootMap([...unresolvedTargets]);
+    for (const ref of spanRefs) {
+      const target = docIds.has(ref.targetBlock) ? ref.targetBlock : blockRoots.get(ref.targetBlock);
+      if (!target || !docIds.has(target) || target === ref.source) continue;
+      counts.set(`${ref.source}->${target}`, Math.max(counts.get(`${ref.source}->${target}`) ?? 0, 1));
+    }
+  }
+  async blockRootMap(ids) {
+    const roots = /* @__PURE__ */ new Map();
+    const validIds = uniqueSorted(ids.filter((id) => /^[0-9a-z-]+$/i.test(id)));
+    for (let index = 0; index < validIds.length; index += 180) {
+      const batch = validIds.slice(index, index + 180);
+      if (!batch.length) continue;
+      const rows = await this.sql(`
+        SELECT id, root_id
+        FROM blocks
+        WHERE id IN (${batch.map(sqlQuote).join(",")}) AND root_id != ''
+      `);
+      for (const row of rows) {
+        roots.set(String(row.id), String(row.root_id));
+      }
+    }
+    return roots;
   }
   async flushIndex() {
     try {
@@ -1149,6 +1192,22 @@ function displayColorKey(key) {
 }
 function uniqueSorted(values) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+function explicitRefIds(value) {
+  const ids = /* @__PURE__ */ new Set();
+  const patterns = [
+    /\(\(([0-9a-z-]+)(?:\s+["'][^"']*["'])?\)\)/gi,
+    /siyuan:\/\/blocks\/([0-9a-z-]+)/gi
+  ];
+  for (const pattern of patterns) {
+    for (const match of value.matchAll(pattern)) {
+      if (match[1]) ids.add(match[1]);
+    }
+  }
+  return [...ids];
+}
+function sqlQuote(value) {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
