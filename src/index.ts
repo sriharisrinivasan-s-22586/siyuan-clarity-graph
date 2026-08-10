@@ -110,6 +110,14 @@ export default class ClarityGraphPlugin extends Plugin {
   private hoveredNodeId?: string;
   private openTopBarElement?: HTMLElement;
   private pulseFrame?: number;
+  private simFrame?: number;
+  private draggedNode?: GraphNode;
+  private simState?: {
+    nodes: GraphNode[];
+    links: Array<{ source: GraphNode | undefined; target: GraphNode | undefined; count: number }>;
+    groupCenters: Map<string, { x: number; y: number }>;
+    tick: number;
+  };
 
   async onload() {
     const plugin = this;
@@ -125,6 +133,7 @@ export default class ClarityGraphPlugin extends Plugin {
         plugin.hideTooltip();
         plugin.cancelViewFrame();
         plugin.stopPulseLoop();
+        plugin.stopSimFrame();
         plugin.root?.classList.remove("cg-host");
         plugin.root = undefined;
       }
@@ -293,10 +302,10 @@ export default class ClarityGraphPlugin extends Plugin {
       if (empty) empty.textContent = "Loading every note reference...";
       this.graph = await this.loadGraph();
       this.applyGroupsAndColors();
-      this.seedPositions();
-      this.simulate();
-      this.fitView(this.visibleNodes());
+      this.scatterPositions();
       this.draw();
+      this.fitView(this.cachedVisibleNodes);
+      this.startAnimatedSim();
       showMessage(`Clarity Graph refreshed: ${this.graph.nodes.length} notes, ${this.graph.links.length} links`, 2600);
     } catch (error) {
       console.error(error);
@@ -500,6 +509,20 @@ export default class ClarityGraphPlugin extends Plugin {
     }
   }
 
+  private scatterPositions() {
+    const nodes = this.graph.nodes;
+    const centers = centersForGroups(nodes);
+    for (const node of nodes) {
+      const center = centers.get(node.groupKey) ?? { x: 0, y: 0 };
+      const angle = Math.random() * Math.PI * 2;
+      const r = node.degree === 0 ? 180 + Math.random() * 160 : 40 + Math.random() * 140;
+      node.x = center.x + Math.cos(angle) * r;
+      node.y = center.y + Math.sin(angle) * r;
+      node.vx = 0;
+      node.vy = 0;
+    }
+  }
+
   private groupKeyFor(node: GraphNode) {
     if (this.settings.colorMode === "component") return node.degree === 0 ? `Orphan: ${node.title}` : node.component;
     if (this.settings.colorMode === "notebook") return node.box || "No notebook";
@@ -611,6 +634,89 @@ export default class ClarityGraphPlugin extends Plugin {
         node.vy *= 0.76;
       }
     }
+  }
+
+  private physicsStep(
+    nodes: GraphNode[],
+    links: Array<{ source: GraphNode | undefined; target: GraphNode | undefined; count: number }>,
+    groupCenters: Map<string, { x: number; y: number }>
+  ) {
+    const pinned = this.draggedNode;
+    for (let i = 0; i < nodes.length; i += 1) {
+      for (let j = i + 1; j < nodes.length; j += 1) {
+        const a = nodes[i];
+        const b = nodes[j];
+        const dx = a.x - b.x || 0.01;
+        const dy = a.y - b.y || 0.01;
+        const dist2 = dx * dx + dy * dy;
+        const force = Math.min((this.settings.repelForce * 680) / dist2, 4);
+        if (a !== pinned) { a.vx += dx * force * 0.01; a.vy += dy * force * 0.01; }
+        if (b !== pinned) { b.vx -= dx * force * 0.01; b.vy -= dy * force * 0.01; }
+      }
+    }
+    for (const link of links) {
+      if (!link.source || !link.target) continue;
+      const dx = link.target.x - link.source.x;
+      const dy = link.target.y - link.source.y;
+      const distance = Math.max(Math.hypot(dx, dy), 1);
+      const desired = this.settings.linkDistance / Math.max(Math.sqrt(link.count), 1);
+      const force = (distance - desired) * 0.004;
+      if (link.source !== pinned) { link.source.vx += (dx / distance) * force; link.source.vy += (dy / distance) * force; }
+      if (link.target !== pinned) { link.target.vx -= (dx / distance) * force; link.target.vy -= (dy / distance) * force; }
+    }
+    for (const node of nodes) {
+      if (node === pinned) continue;
+      const center = groupCenters.get(node.groupKey) ?? { x: 0, y: 0 };
+      const centerForce = this.settings.centerStrength * (node.degree === 0 ? 0.018 : 0.01);
+      node.vx += (center.x - node.x) * centerForce;
+      node.vy += (center.y - node.y) * centerForce;
+      node.x += node.vx;
+      node.y += node.vy;
+      node.vx *= 0.76;
+      node.vy *= 0.76;
+    }
+  }
+
+  private startAnimatedSim() {
+    this.stopSimFrame();
+    const nodes = this.cachedVisibleNodes;
+    const visible = new Set(nodes.map((n) => n.id));
+    const byId = new Map(this.graph.nodes.map((n) => [n.id, n]));
+    this.simState = {
+      nodes,
+      links: this.graph.links
+        .filter((l) => visible.has(l.source) && visible.has(l.target))
+        .map((l) => ({ source: byId.get(l.source), target: byId.get(l.target), count: l.count })),
+      groupCenters: centersForGroups(nodes),
+      tick: 0,
+    };
+    this.tickSimFrame();
+  }
+
+  private tickSimFrame() {
+    const state = this.simState;
+    if (!state || state.tick >= 300) {
+      this.simState = undefined;
+      this.fitView(this.cachedVisibleNodes);
+      this.draw();
+      return;
+    }
+    const ticksPerFrame = 6;
+    for (let t = 0; t < ticksPerFrame; t++) {
+      this.physicsStep(state.nodes, state.links, state.groupCenters);
+      state.tick++;
+      if (state.tick >= 300) break;
+    }
+    this.cachedBounds = this.graphBounds(state.nodes);
+    this.paintCanvas();
+    this.simFrame = window.requestAnimationFrame(() => this.tickSimFrame());
+  }
+
+  private stopSimFrame() {
+    if (this.simFrame === undefined) return;
+    window.cancelAnimationFrame(this.simFrame);
+    this.simFrame = undefined;
+    this.simState = undefined;
   }
 
   private visibleNodes() {
@@ -848,23 +954,44 @@ export default class ClarityGraphPlugin extends Plugin {
       stage.addEventListener("wheel", (e) => { e.preventDefault(); }, { passive: false, capture: true });
     }
 
-    let dragging = false;
+    let panning = false;
     let didDrag = false;
     let lastX = 0;
     let lastY = 0;
 
     canvas.addEventListener("pointerdown", (event) => {
-      dragging = true;
       didDrag = false;
       lastX = event.clientX;
       lastY = event.clientY;
       canvas.setPointerCapture(event.pointerId);
-      canvas.style.cursor = "grabbing";
+      const hitNode = this.nodeAtPointer(event);
+      if (hitNode) {
+        this.draggedNode = hitNode;
+        this.hoveredNodeId = hitNode.id;
+        canvas.style.cursor = "grabbing";
+      } else {
+        panning = true;
+        canvas.style.cursor = "grabbing";
+      }
     });
     canvas.addEventListener("pointermove", (event) => {
-      if (dragging) {
-        const dx = event.clientX - lastX;
-        const dy = event.clientY - lastY;
+      const dx = event.clientX - lastX;
+      const dy = event.clientY - lastY;
+      if (this.draggedNode) {
+        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) didDrag = true;
+        const gx = (event.clientX - this.cachedCanvasRect.left - this.view.x) / this.view.scale;
+        const gy = (event.clientY - this.cachedCanvasRect.top - this.view.y) / this.view.scale;
+        this.draggedNode.x = gx;
+        this.draggedNode.y = gy;
+        this.draggedNode.vx = 0;
+        this.draggedNode.vy = 0;
+        lastX = event.clientX;
+        lastY = event.clientY;
+        this.cachedBounds = this.graphBounds(this.cachedVisibleNodes);
+        this.scheduleViewTransform();
+        return;
+      }
+      if (panning) {
         if (Math.abs(dx) > 2 || Math.abs(dy) > 2) didDrag = true;
         this.hideTooltip();
         this.view.x += dx;
@@ -878,18 +1005,20 @@ export default class ClarityGraphPlugin extends Plugin {
       this.updateHoverFromPointer(event);
     });
     canvas.addEventListener("pointerup", (event) => {
-      if (dragging && !didDrag) {
-        const node = this.nodeAtPointer(event);
-        if (node) {
+      if (this.draggedNode) {
+        if (!didDrag) {
           this.hideTooltip();
-          void openTab({ app: this.app, doc: { id: node.id } });
+          void openTab({ app: this.app, doc: { id: this.draggedNode.id } });
         }
+        this.draggedNode = undefined;
+        canvas.style.cursor = this.hoveredNodeId ? "pointer" : "grab";
+        return;
       }
-      dragging = false;
+      panning = false;
       canvas.style.cursor = this.hoveredNodeId ? "pointer" : "grab";
     });
     canvas.addEventListener("pointerleave", () => {
-      if (!dragging) {
+      if (!panning && !this.draggedNode) {
         this.hoveredNodeId = undefined;
         canvas.style.cursor = "grab";
         this.scheduleViewTransform();
