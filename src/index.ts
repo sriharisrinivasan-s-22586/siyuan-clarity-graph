@@ -112,6 +112,7 @@ export default class ClarityGraphPlugin extends Plugin {
   private pulseFrame?: number;
   private simFrame?: number;
   private draggedNode?: GraphNode;
+  private stageResizeObserver?: ResizeObserver;
   private simState?: {
     nodes: GraphNode[];
     links: Array<{ source: GraphNode | undefined; target: GraphNode | undefined; count: number }>;
@@ -134,6 +135,8 @@ export default class ClarityGraphPlugin extends Plugin {
         plugin.cancelViewFrame();
         plugin.stopPulseLoop();
         plugin.stopSimFrame();
+        plugin.stageResizeObserver?.disconnect();
+        plugin.stageResizeObserver = undefined;
         plugin.root?.classList.remove("cg-host");
         plugin.root = undefined;
       }
@@ -952,6 +955,21 @@ export default class ClarityGraphPlugin extends Plugin {
     const stage = canvas.parentElement;
     if (stage) {
       stage.addEventListener("wheel", (e) => { e.preventDefault(); }, { passive: false, capture: true });
+
+      this.stageResizeObserver?.disconnect();
+      this.stageResizeObserver = new ResizeObserver(() => {
+        if (!this.root) return;
+        const w = stage.clientWidth || 900;
+        const h = stage.clientHeight || 620;
+        this.cachedStageDims = { width: w, height: h };
+        const rect = canvas.getBoundingClientRect();
+        this.cachedCanvasRect = { left: rect.left, top: rect.top };
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        this.paintCanvas();
+      });
+      this.stageResizeObserver.observe(stage);
     }
 
     let panning = false;
@@ -1032,7 +1050,7 @@ export default class ClarityGraphPlugin extends Plugin {
       const graphX = (anchorX - this.view.x) / this.view.scale;
       const graphY = (anchorY - this.view.y) / this.view.scale;
       const factor = Math.max(0.82, Math.min(1.22, Math.exp(-event.deltaY * 0.004)));
-      const nextScale = Math.max(0.12, Math.min(5, this.view.scale * factor));
+      const nextScale = Math.max(0.04, Math.min(5, this.view.scale * factor));
 
       this.view.scale = nextScale;
       this.view.x = anchorX - graphX * nextScale;
@@ -1047,15 +1065,19 @@ export default class ClarityGraphPlugin extends Plugin {
     if (!bounds) return;
 
     const { width, height } = this.cachedStageDims;
-    const margin = 110;
+    const margin = 80;
 
-    const minX = margin - bounds.maxX * this.view.scale;
-    const maxX = width - margin - bounds.minX * this.view.scale;
-    this.view.x = clamp(this.view.x, minX, maxX);
+    const rawMinX = margin - bounds.maxX * this.view.scale;
+    const rawMaxX = width - margin - bounds.minX * this.view.scale;
+    this.view.x = rawMinX <= rawMaxX
+      ? clamp(this.view.x, rawMinX, rawMaxX)
+      : clamp(this.view.x, rawMaxX, rawMinX);
 
-    const minY = margin - bounds.maxY * this.view.scale;
-    const maxY = height - margin - bounds.minY * this.view.scale;
-    this.view.y = clamp(this.view.y, minY, maxY);
+    const rawMinY = margin - bounds.maxY * this.view.scale;
+    const rawMaxY = height - margin - bounds.minY * this.view.scale;
+    this.view.y = rawMinY <= rawMaxY
+      ? clamp(this.view.y, rawMinY, rawMaxY)
+      : clamp(this.view.y, rawMaxY, rawMinY);
   }
 
   private graphBounds(nodes: GraphNode[]) {

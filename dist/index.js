@@ -39,6 +39,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     __publicField(this, "pulseFrame");
     __publicField(this, "simFrame");
     __publicField(this, "draggedNode");
+    __publicField(this, "stageResizeObserver");
     __publicField(this, "simState");
   }
   async onload() {
@@ -55,6 +56,8 @@ class ClarityGraphPlugin extends siyuan.Plugin {
         plugin.cancelViewFrame();
         plugin.stopPulseLoop();
         plugin.stopSimFrame();
+        plugin.stageResizeObserver?.disconnect();
+        plugin.stageResizeObserver = void 0;
         plugin.root?.classList.remove("cg-host");
         plugin.root = void 0;
       }
@@ -804,6 +807,20 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       stage.addEventListener("wheel", (e) => {
         e.preventDefault();
       }, { passive: false, capture: true });
+      this.stageResizeObserver?.disconnect();
+      this.stageResizeObserver = new ResizeObserver(() => {
+        if (!this.root) return;
+        const w = stage.clientWidth || 900;
+        const h = stage.clientHeight || 620;
+        this.cachedStageDims = { width: w, height: h };
+        const rect = canvas.getBoundingClientRect();
+        this.cachedCanvasRect = { left: rect.left, top: rect.top };
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        this.paintCanvas();
+      });
+      this.stageResizeObserver.observe(stage);
     }
     let panning = false;
     let didDrag = false;
@@ -882,7 +899,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       const graphX = (anchorX - this.view.x) / this.view.scale;
       const graphY = (anchorY - this.view.y) / this.view.scale;
       const factor = Math.max(0.82, Math.min(1.22, Math.exp(-event.deltaY * 4e-3)));
-      const nextScale = Math.max(0.12, Math.min(5, this.view.scale * factor));
+      const nextScale = Math.max(0.04, Math.min(5, this.view.scale * factor));
       this.view.scale = nextScale;
       this.view.x = anchorX - graphX * nextScale;
       this.view.y = anchorY - graphY * nextScale;
@@ -894,13 +911,13 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     const bounds = this.cachedBounds;
     if (!bounds) return;
     const { width, height } = this.cachedStageDims;
-    const margin = 110;
-    const minX = margin - bounds.maxX * this.view.scale;
-    const maxX = width - margin - bounds.minX * this.view.scale;
-    this.view.x = clamp(this.view.x, minX, maxX);
-    const minY = margin - bounds.maxY * this.view.scale;
-    const maxY = height - margin - bounds.minY * this.view.scale;
-    this.view.y = clamp(this.view.y, minY, maxY);
+    const margin = 80;
+    const rawMinX = margin - bounds.maxX * this.view.scale;
+    const rawMaxX = width - margin - bounds.minX * this.view.scale;
+    this.view.x = rawMinX <= rawMaxX ? clamp(this.view.x, rawMinX, rawMaxX) : clamp(this.view.x, rawMaxX, rawMinX);
+    const rawMinY = margin - bounds.maxY * this.view.scale;
+    const rawMaxY = height - margin - bounds.minY * this.view.scale;
+    this.view.y = rawMinY <= rawMaxY ? clamp(this.view.y, rawMinY, rawMaxY) : clamp(this.view.y, rawMaxY, rawMinY);
   }
   graphBounds(nodes) {
     if (!nodes.length) return void 0;
