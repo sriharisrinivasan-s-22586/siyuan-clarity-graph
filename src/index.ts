@@ -111,6 +111,8 @@ export default class ClarityGraphPlugin extends Plugin {
   private pulseFrame?: number;
   private simFrame?: number;
   private draggedNode?: GraphNode;
+  private draggedNodeIds = new Set<string>();
+  private dragOffsets = new Map<string, { x: number; y: number }>();
   private stageResizeObserver?: ResizeObserver;
   private simState?: {
     nodes: GraphNode[];
@@ -624,7 +626,7 @@ export default class ClarityGraphPlugin extends Plugin {
     links: Array<{ source: GraphNode | undefined; target: GraphNode | undefined; count: number }>,
     groupCenters: Map<string, { x: number; y: number }>
   ) {
-    const pinned = this.draggedNode;
+    const pinned = this.draggedNodeIds;
     for (let i = 0; i < nodes.length; i += 1) {
       for (let j = i + 1; j < nodes.length; j += 1) {
         const a = nodes[i];
@@ -633,8 +635,8 @@ export default class ClarityGraphPlugin extends Plugin {
         const dy = a.y - b.y || 0.01;
         const dist2 = dx * dx + dy * dy;
         const force = Math.min((this.settings.repelForce * 680) / dist2, 4);
-        if (a !== pinned) { a.vx += dx * force * 0.01; a.vy += dy * force * 0.01; }
-        if (b !== pinned) { b.vx -= dx * force * 0.01; b.vy -= dy * force * 0.01; }
+        if (!pinned.has(a.id)) { a.vx += dx * force * 0.01; a.vy += dy * force * 0.01; }
+        if (!pinned.has(b.id)) { b.vx -= dx * force * 0.01; b.vy -= dy * force * 0.01; }
       }
     }
     for (const link of links) {
@@ -644,11 +646,11 @@ export default class ClarityGraphPlugin extends Plugin {
       const distance = Math.max(Math.hypot(dx, dy), 1);
       const desired = this.settings.linkDistance / Math.max(Math.sqrt(link.count), 1);
       const force = (distance - desired) * 0.004;
-      if (link.source !== pinned) { link.source.vx += (dx / distance) * force; link.source.vy += (dy / distance) * force; }
-      if (link.target !== pinned) { link.target.vx -= (dx / distance) * force; link.target.vy -= (dy / distance) * force; }
+      if (!pinned.has(link.source.id)) { link.source.vx += (dx / distance) * force; link.source.vy += (dy / distance) * force; }
+      if (!pinned.has(link.target.id)) { link.target.vx -= (dx / distance) * force; link.target.vy -= (dy / distance) * force; }
     }
     for (const node of nodes) {
-      if (node === pinned) continue;
+      if (pinned.has(node.id)) continue;
       const center = groupCenters.get(node.groupKey) ?? { x: 0, y: 0 };
       const centerForce = this.settings.centerStrength * (node.degree === 0 ? 0.018 : 0.01);
       node.vx += (center.x - node.x) * centerForce;
@@ -803,8 +805,10 @@ export default class ClarityGraphPlugin extends Plugin {
     for (const link of this.cachedVisibleLinks) {
       const sw = this.settings.linkThickness * Math.min(Math.sqrt(link.count), 3) / scale;
       const points = linkBoundaryPoints(link.source, link.target, this.nodeRadius(link.source), this.nodeRadius(link.target), this.settings.arrows ? 9 : 2);
-      ctx.strokeStyle = "#7a8495";
-      ctx.lineWidth = sw;
+      const isDraggedLink = this.draggedNodeIds.has(link.source.id) && this.draggedNodeIds.has(link.target.id);
+      const isHoveredLink = this.hoveredNodeId !== undefined && (link.source.id === this.hoveredNodeId || link.target.id === this.hoveredNodeId);
+      ctx.strokeStyle = isDraggedLink || isHoveredLink ? "#f8fafc" : "#7a8495";
+      ctx.lineWidth = isDraggedLink || isHoveredLink ? Math.max(sw, 2.8 / scale) : sw;
       ctx.beginPath();
       ctx.moveTo(points.x1, points.y1);
       ctx.lineTo(points.x2, points.y2);
@@ -813,7 +817,7 @@ export default class ClarityGraphPlugin extends Plugin {
       if (this.settings.arrows) {
         const angle = Math.atan2(points.y2 - points.y1, points.x2 - points.x1);
         const head = 9 / scale;
-        ctx.fillStyle = "#9aa4b5";
+        ctx.fillStyle = isDraggedLink || isHoveredLink ? "#f8fafc" : "#9aa4b5";
         ctx.beginPath();
         ctx.moveTo(points.x2, points.y2);
         ctx.lineTo(points.x2 - head * Math.cos(angle - Math.PI / 6), points.y2 - head * Math.sin(angle - Math.PI / 6));
@@ -841,8 +845,13 @@ export default class ClarityGraphPlugin extends Plugin {
     for (const node of this.cachedVisibleNodes) {
       const radius = this.nodeRadius(node);
       const isHovered = node.id === this.hoveredNodeId;
+      const isDragged = node.id === this.draggedNode?.id;
+      const isDraggedNeighbor = !isDragged && this.draggedNodeIds.has(node.id);
 
-      if (node.hasSubLinks) {
+      if (isDragged || isDraggedNeighbor) {
+        ctx.shadowBlur = (isDragged ? 28 : 20) / scale;
+        ctx.shadowColor = "rgba(255, 255, 255, 0.72)";
+      } else if (node.hasSubLinks) {
         const pulse = (Math.sin(performance.now() / 700) + 1) / 2;
         ctx.shadowBlur = (14 + pulse * 12) / scale;
         ctx.shadowColor = "rgba(255, 210, 90, 0.72)";
@@ -862,6 +871,8 @@ export default class ClarityGraphPlugin extends Plugin {
       if (node.isTopLevel) { strokeColor = "#ffffff"; strokeWidth = 4 / scale; }
       if (node.hasSubLinks) { strokeColor = "#fff7d6"; strokeWidth = 3 / scale; }
       if (isHovered) { strokeColor = "#ffffff"; strokeWidth = (node.isTopLevel || node.hasSubLinks) ? 3.6 / scale : 2.6 / scale; }
+      if (isDraggedNeighbor) { strokeColor = "#bfdbfe"; strokeWidth = 3.2 / scale; }
+      if (isDragged) { strokeColor = "#ffffff"; strokeWidth = 5 / scale; }
       ctx.strokeStyle = strokeColor;
       ctx.lineWidth = strokeWidth;
       ctx.stroke();
@@ -922,6 +933,45 @@ export default class ClarityGraphPlugin extends Plugin {
     this.applyViewTransform();
   }
 
+  private visibleDescendantNodeIds(startId: string) {
+    const visibleIds = new Set(this.cachedVisibleNodes.map((node) => node.id));
+    const childIds = new Map<string, string[]>();
+    for (const id of visibleIds) childIds.set(id, []);
+    for (const link of this.cachedVisibleLinks) {
+      childIds.get(link.source.id)?.push(link.target.id);
+    }
+
+    const selected = new Set<string>();
+    const stack = [startId];
+    while (stack.length) {
+      const id = stack.pop();
+      if (!id || selected.has(id) || !visibleIds.has(id)) continue;
+      selected.add(id);
+      for (const childId of childIds.get(id) ?? []) stack.push(childId);
+    }
+    return selected;
+  }
+
+  private dragOffsetsFor(anchor: GraphNode, nodeIds: Set<string>) {
+    const offsets = new Map<string, { x: number; y: number }>();
+    for (const node of this.cachedVisibleNodes) {
+      if (!nodeIds.has(node.id)) continue;
+      offsets.set(node.id, { x: node.x - anchor.x, y: node.y - anchor.y });
+    }
+    return offsets;
+  }
+
+  private moveDraggedNodes(anchorX: number, anchorY: number) {
+    for (const node of this.cachedVisibleNodes) {
+      const offset = this.dragOffsets.get(node.id);
+      if (!offset) continue;
+      node.x = anchorX + offset.x;
+      node.y = anchorY + offset.y;
+      node.vx = 0;
+      node.vy = 0;
+    }
+  }
+
   private nodeRadius(node: GraphNode) {
     const baseRadius = (5.2 + Math.sqrt(node.degree + 1) * 2.1) * this.settings.nodeSize;
     return node.isTopLevel ? baseRadius * 1.18 : baseRadius;
@@ -964,8 +1014,12 @@ export default class ClarityGraphPlugin extends Plugin {
       const hitNode = this.nodeAtPointer(event);
       if (hitNode) {
         this.draggedNode = hitNode;
+        this.draggedNodeIds = this.visibleDescendantNodeIds(hitNode.id);
+        this.dragOffsets = this.dragOffsetsFor(hitNode, this.draggedNodeIds);
         this.hoveredNodeId = hitNode.id;
         canvas.style.cursor = "grabbing";
+        this.hideTooltip();
+        this.scheduleViewTransform();
       } else {
         panning = true;
         canvas.style.cursor = "grabbing";
@@ -978,10 +1032,7 @@ export default class ClarityGraphPlugin extends Plugin {
         if (Math.abs(dx) > 2 || Math.abs(dy) > 2) didDrag = true;
         const gx = (event.clientX - this.cachedCanvasRect.left - this.view.x) / this.view.scale;
         const gy = (event.clientY - this.cachedCanvasRect.top - this.view.y) / this.view.scale;
-        this.draggedNode.x = gx;
-        this.draggedNode.y = gy;
-        this.draggedNode.vx = 0;
-        this.draggedNode.vy = 0;
+        this.moveDraggedNodes(gx, gy);
         lastX = event.clientX;
         lastY = event.clientY;
         this.cachedBounds = this.graphBounds(this.cachedVisibleNodes);
@@ -1008,7 +1059,10 @@ export default class ClarityGraphPlugin extends Plugin {
           void openTab({ app: this.app, doc: { id: this.draggedNode.id } });
         }
         this.draggedNode = undefined;
+        this.draggedNodeIds.clear();
+        this.dragOffsets.clear();
         canvas.style.cursor = this.hoveredNodeId ? "pointer" : "grab";
+        this.scheduleViewTransform();
         return;
       }
       panning = false;

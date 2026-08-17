@@ -38,6 +38,8 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     __publicField(this, "pulseFrame");
     __publicField(this, "simFrame");
     __publicField(this, "draggedNode");
+    __publicField(this, "draggedNodeIds", /* @__PURE__ */ new Set());
+    __publicField(this, "dragOffsets", /* @__PURE__ */ new Map());
     __publicField(this, "stageResizeObserver");
     __publicField(this, "simState");
   }
@@ -495,7 +497,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     }
   }
   physicsStep(nodes, links, groupCenters) {
-    const pinned = this.draggedNode;
+    const pinned = this.draggedNodeIds;
     for (let i = 0; i < nodes.length; i += 1) {
       for (let j = i + 1; j < nodes.length; j += 1) {
         const a = nodes[i];
@@ -504,11 +506,11 @@ class ClarityGraphPlugin extends siyuan.Plugin {
         const dy = a.y - b.y || 0.01;
         const dist2 = dx * dx + dy * dy;
         const force = Math.min(this.settings.repelForce * 680 / dist2, 4);
-        if (a !== pinned) {
+        if (!pinned.has(a.id)) {
           a.vx += dx * force * 0.01;
           a.vy += dy * force * 0.01;
         }
-        if (b !== pinned) {
+        if (!pinned.has(b.id)) {
           b.vx -= dx * force * 0.01;
           b.vy -= dy * force * 0.01;
         }
@@ -521,17 +523,17 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       const distance = Math.max(Math.hypot(dx, dy), 1);
       const desired = this.settings.linkDistance / Math.max(Math.sqrt(link.count), 1);
       const force = (distance - desired) * 4e-3;
-      if (link.source !== pinned) {
+      if (!pinned.has(link.source.id)) {
         link.source.vx += dx / distance * force;
         link.source.vy += dy / distance * force;
       }
-      if (link.target !== pinned) {
+      if (!pinned.has(link.target.id)) {
         link.target.vx -= dx / distance * force;
         link.target.vy -= dy / distance * force;
       }
     }
     for (const node of nodes) {
-      if (node === pinned) continue;
+      if (pinned.has(node.id)) continue;
       const center = groupCenters.get(node.groupKey) ?? { x: 0, y: 0 };
       const centerForce = this.settings.centerStrength * (node.degree === 0 ? 0.018 : 0.01);
       node.vx += (center.x - node.x) * centerForce;
@@ -662,8 +664,10 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     for (const link of this.cachedVisibleLinks) {
       const sw = this.settings.linkThickness * Math.min(Math.sqrt(link.count), 3) / scale;
       const points = linkBoundaryPoints(link.source, link.target, this.nodeRadius(link.source), this.nodeRadius(link.target), this.settings.arrows ? 9 : 2);
-      ctx.strokeStyle = "#7a8495";
-      ctx.lineWidth = sw;
+      const isDraggedLink = this.draggedNodeIds.has(link.source.id) && this.draggedNodeIds.has(link.target.id);
+      const isHoveredLink = this.hoveredNodeId !== void 0 && (link.source.id === this.hoveredNodeId || link.target.id === this.hoveredNodeId);
+      ctx.strokeStyle = isDraggedLink || isHoveredLink ? "#f8fafc" : "#7a8495";
+      ctx.lineWidth = isDraggedLink || isHoveredLink ? Math.max(sw, 2.8 / scale) : sw;
       ctx.beginPath();
       ctx.moveTo(points.x1, points.y1);
       ctx.lineTo(points.x2, points.y2);
@@ -671,7 +675,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       if (this.settings.arrows) {
         const angle = Math.atan2(points.y2 - points.y1, points.x2 - points.x1);
         const head = 9 / scale;
-        ctx.fillStyle = "#9aa4b5";
+        ctx.fillStyle = isDraggedLink || isHoveredLink ? "#f8fafc" : "#9aa4b5";
         ctx.beginPath();
         ctx.moveTo(points.x2, points.y2);
         ctx.lineTo(points.x2 - head * Math.cos(angle - Math.PI / 6), points.y2 - head * Math.sin(angle - Math.PI / 6));
@@ -695,7 +699,12 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     for (const node of this.cachedVisibleNodes) {
       const radius = this.nodeRadius(node);
       const isHovered = node.id === this.hoveredNodeId;
-      if (node.hasSubLinks) {
+      const isDragged = node.id === this.draggedNode?.id;
+      const isDraggedNeighbor = !isDragged && this.draggedNodeIds.has(node.id);
+      if (isDragged || isDraggedNeighbor) {
+        ctx.shadowBlur = (isDragged ? 28 : 20) / scale;
+        ctx.shadowColor = "rgba(255, 255, 255, 0.72)";
+      } else if (node.hasSubLinks) {
         const pulse = (Math.sin(performance.now() / 700) + 1) / 2;
         ctx.shadowBlur = (14 + pulse * 12) / scale;
         ctx.shadowColor = "rgba(255, 210, 90, 0.72)";
@@ -721,6 +730,14 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       if (isHovered) {
         strokeColor = "#ffffff";
         strokeWidth = node.isTopLevel || node.hasSubLinks ? 3.6 / scale : 2.6 / scale;
+      }
+      if (isDraggedNeighbor) {
+        strokeColor = "#bfdbfe";
+        strokeWidth = 3.2 / scale;
+      }
+      if (isDragged) {
+        strokeColor = "#ffffff";
+        strokeWidth = 5 / scale;
       }
       ctx.strokeStyle = strokeColor;
       ctx.lineWidth = strokeWidth;
@@ -776,6 +793,41 @@ class ClarityGraphPlugin extends siyuan.Plugin {
     };
     this.applyViewTransform();
   }
+  visibleDescendantNodeIds(startId) {
+    const visibleIds = new Set(this.cachedVisibleNodes.map((node) => node.id));
+    const childIds = /* @__PURE__ */ new Map();
+    for (const id of visibleIds) childIds.set(id, []);
+    for (const link of this.cachedVisibleLinks) {
+      childIds.get(link.source.id)?.push(link.target.id);
+    }
+    const selected = /* @__PURE__ */ new Set();
+    const stack = [startId];
+    while (stack.length) {
+      const id = stack.pop();
+      if (!id || selected.has(id) || !visibleIds.has(id)) continue;
+      selected.add(id);
+      for (const childId of childIds.get(id) ?? []) stack.push(childId);
+    }
+    return selected;
+  }
+  dragOffsetsFor(anchor, nodeIds) {
+    const offsets = /* @__PURE__ */ new Map();
+    for (const node of this.cachedVisibleNodes) {
+      if (!nodeIds.has(node.id)) continue;
+      offsets.set(node.id, { x: node.x - anchor.x, y: node.y - anchor.y });
+    }
+    return offsets;
+  }
+  moveDraggedNodes(anchorX, anchorY) {
+    for (const node of this.cachedVisibleNodes) {
+      const offset = this.dragOffsets.get(node.id);
+      if (!offset) continue;
+      node.x = anchorX + offset.x;
+      node.y = anchorY + offset.y;
+      node.vx = 0;
+      node.vy = 0;
+    }
+  }
   nodeRadius(node) {
     const baseRadius = (5.2 + Math.sqrt(node.degree + 1) * 2.1) * this.settings.nodeSize;
     return node.isTopLevel ? baseRadius * 1.18 : baseRadius;
@@ -815,8 +867,12 @@ class ClarityGraphPlugin extends siyuan.Plugin {
       const hitNode = this.nodeAtPointer(event);
       if (hitNode) {
         this.draggedNode = hitNode;
+        this.draggedNodeIds = this.visibleDescendantNodeIds(hitNode.id);
+        this.dragOffsets = this.dragOffsetsFor(hitNode, this.draggedNodeIds);
         this.hoveredNodeId = hitNode.id;
         canvas.style.cursor = "grabbing";
+        this.hideTooltip();
+        this.scheduleViewTransform();
       } else {
         panning = true;
         canvas.style.cursor = "grabbing";
@@ -829,10 +885,7 @@ class ClarityGraphPlugin extends siyuan.Plugin {
         if (Math.abs(dx) > 2 || Math.abs(dy) > 2) didDrag = true;
         const gx = (event.clientX - this.cachedCanvasRect.left - this.view.x) / this.view.scale;
         const gy = (event.clientY - this.cachedCanvasRect.top - this.view.y) / this.view.scale;
-        this.draggedNode.x = gx;
-        this.draggedNode.y = gy;
-        this.draggedNode.vx = 0;
-        this.draggedNode.vy = 0;
+        this.moveDraggedNodes(gx, gy);
         lastX = event.clientX;
         lastY = event.clientY;
         this.cachedBounds = this.graphBounds(this.cachedVisibleNodes);
@@ -859,7 +912,10 @@ class ClarityGraphPlugin extends siyuan.Plugin {
           void siyuan.openTab({ app: this.app, doc: { id: this.draggedNode.id } });
         }
         this.draggedNode = void 0;
+        this.draggedNodeIds.clear();
+        this.dragOffsets.clear();
         canvas.style.cursor = this.hoveredNodeId ? "pointer" : "grab";
+        this.scheduleViewTransform();
         return;
       }
       panning = false;
